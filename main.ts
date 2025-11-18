@@ -382,8 +382,12 @@ export default class MinimalTasksPlugin extends Plugin {
 		// 2. Priority badge
 		html += this.renderPriorityBadge(priority, path);
 
-		// 3. Task link
-		html += ' ' + (task.link || 'Untitled');
+		// 3. Task link (with strikethrough for done/dropped)
+		const taskLinkHtml = task.link || 'Untitled';
+		const shouldStrikethrough = status === 'done' || status === 'dropped';
+		html += ' ' + (shouldStrikethrough
+			? `<span style="text-decoration: line-through; opacity: 0.6;">${taskLinkHtml}</span>`
+			: taskLinkHtml);
 
 		// 4. Note icon (if task has content)
 		if (hasNotes && this.settings.showNoteIcon) {
@@ -664,6 +668,45 @@ export default class MinimalTasksPlugin extends Plugin {
 			// Update status dot color immediately (visual feedback)
 			element.dataset.status = status;
 
+			// Update task link strikethrough
+			// Find the task link that follows this status dot (traverse siblings)
+			let taskLink: Element | null = null;
+			let sibling = element.nextElementSibling;
+			while (sibling) {
+				if (sibling.classList.contains('internal-link')) {
+					taskLink = sibling;
+					break;
+				}
+				// Also check if the link is wrapped in a span
+				const linkInside = sibling.querySelector('.internal-link');
+				if (linkInside) {
+					taskLink = linkInside;
+					break;
+				}
+				sibling = sibling.nextElementSibling;
+			}
+			if (taskLink) {
+				const shouldStrikethrough = status === 'done' || status === 'dropped';
+				if (shouldStrikethrough) {
+					// Wrap in span with strikethrough if not already wrapped
+					if (!taskLink.parentElement?.classList.contains('task-strikethrough')) {
+						const wrapper = document.createElement('span');
+						wrapper.classList.add('task-strikethrough');
+						wrapper.style.textDecoration = 'line-through';
+						wrapper.style.opacity = '0.6';
+						taskLink.parentElement?.insertBefore(wrapper, taskLink);
+						wrapper.appendChild(taskLink);
+					}
+				} else {
+					// Remove wrapper if exists
+					const wrapper = taskLink.parentElement;
+					if (wrapper?.classList.contains('task-strikethrough')) {
+						wrapper.parentElement?.insertBefore(taskLink, wrapper);
+						wrapper.remove();
+					}
+				}
+			}
+
 			// Show notification
 			const statusLabels: { [key: string]: string } = {
 				'none': '⚪ None',
@@ -673,9 +716,6 @@ export default class MinimalTasksPlugin extends Plugin {
 				'dropped': '🔴 Dropped'
 			};
 			new Notice(statusLabels[status] || status);
-
-			// Refresh Dataview
-			this.refreshDataview();
 
 		} catch (error) {
 			console.error('Error setting status:', error);
@@ -702,9 +742,6 @@ export default class MinimalTasksPlugin extends Plugin {
 			};
 			new Notice(priorityLabels[priority] || priority);
 
-			// Refresh Dataview
-			this.refreshDataview();
-
 		} catch (error) {
 			console.error('Error setting priority:', error);
 			new Notice('Error updating task priority');
@@ -730,6 +767,45 @@ export default class MinimalTasksPlugin extends Plugin {
 			// Update status dot color immediately (visual feedback)
 			element.dataset.status = nextStatus;
 
+			// Update task link strikethrough
+			// Find the task link that follows this status dot (traverse siblings)
+			let taskLink: Element | null = null;
+			let sibling = element.nextElementSibling;
+			while (sibling) {
+				if (sibling.classList.contains('internal-link')) {
+					taskLink = sibling;
+					break;
+				}
+				// Also check if the link is wrapped in a span
+				const linkInside = sibling.querySelector('.internal-link');
+				if (linkInside) {
+					taskLink = linkInside;
+					break;
+				}
+				sibling = sibling.nextElementSibling;
+			}
+			if (taskLink) {
+				const shouldStrikethrough = nextStatus === 'done' || nextStatus === 'dropped';
+				if (shouldStrikethrough) {
+					// Wrap in span with strikethrough if not already wrapped
+					if (!taskLink.parentElement?.classList.contains('task-strikethrough')) {
+						const wrapper = document.createElement('span');
+						wrapper.classList.add('task-strikethrough');
+						wrapper.style.textDecoration = 'line-through';
+						wrapper.style.opacity = '0.6';
+						taskLink.parentElement?.insertBefore(wrapper, taskLink);
+						wrapper.appendChild(taskLink);
+					}
+				} else {
+					// Remove wrapper if exists
+					const wrapper = taskLink.parentElement;
+					if (wrapper?.classList.contains('task-strikethrough')) {
+						wrapper.parentElement?.insertBefore(taskLink, wrapper);
+						wrapper.remove();
+					}
+				}
+			}
+
 			// Show notification
 			const statusLabels: { [key: string]: string } = {
 				'none': '⚪ None',
@@ -739,9 +815,6 @@ export default class MinimalTasksPlugin extends Plugin {
 				'dropped': '🔴 Dropped'
 			};
 			new Notice(statusLabels[nextStatus] || nextStatus);
-
-			// Refresh Dataview
-			this.refreshDataview();
 
 		} catch (error) {
 			console.error('Error cycling status:', error);
@@ -776,9 +849,6 @@ export default class MinimalTasksPlugin extends Plugin {
 				'someday': '💭 Someday'
 			};
 			new Notice(priorityLabels[nextPriority] || nextPriority);
-
-			// Refresh Dataview
-			this.refreshDataview();
 
 		} catch (error) {
 			console.error('Error cycling priority:', error);
