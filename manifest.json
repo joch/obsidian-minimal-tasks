@@ -1,11 +1,9 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
-	"version": "1.0.0",
+	"id": "minimal-tasks",
+	"name": "Minimal Tasks",
+	"version": "0.1.0",
 	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"description": "Lightweight plugin for interactive task status and priority in DataviewJS lists. Click status dots and priority badges to cycle values.",
+	"author": "Johnny Chadda",
 	"isDesktopOnly": false
 }

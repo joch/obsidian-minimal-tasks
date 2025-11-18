@@ -1,94 +1,221 @@
-# Obsidian Sample Plugin
+# Minimal Tasks
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+A lightweight Obsidian plugin for interactive task rendering in DataviewJS lists. Features clickable status dots and priority badges with right-click menus for quick task updates.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+## Features
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open Sample Modal" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and output 'click' to the console.
-- Registers a global interval which logs 'setInterval' to the console.
+- **Interactive Status Dots**: Color-coded dots indicating task status
+  - Left-click to cycle through: none → open → in-progress → done → dropped
+  - Right-click for menu selection
+- **Priority Badges**: Visual indicators for task priority
+  - Left-click to cycle: anytime → today → someday
+  - Right-click for menu selection
+- **Date Badges**: Automatic display of scheduled and due dates
+  - Overdue warnings with red background
+- **Project Links**: Show project relationships with due date indicators
+- **Metadata Pills**: Display contexts, people, meetings, and locations
+- **Customizable Fields**: Configure all frontmatter field names in settings
 
-## First time developing plugins?
+## Installation
 
-Quick starting guide for new plugin devs:
+1. Copy the `minimal-tasks` folder to your vault's `.obsidian/plugins/` directory
+2. Reload Obsidian or restart the app
+3. Enable "Minimal Tasks" in Settings → Community plugins
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `main.ts` to `main.js`.
-- Make changes to `main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+## Requirements
 
-## Releasing new releases
+- **Dataview plugin**: Required for querying and rendering tasks
+- **Task structure**: Tasks as individual markdown files with YAML frontmatter
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+## Basic Usage
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+### Simple Task List
 
-## Adding your plugin to the community plugin list
+```dataviewjs
+const tasks = dv.pages('"tasks"')
+    .where(t => t.status != "done");
 
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
-
-## How to use
-
-- Clone this repo.
-- Make sure your NodeJS is at least v16 (`node --version`).
-- `npm i` or `yarn` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
-
-## Manually installing the plugin
-
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
-
-## Improve code quality with eslint (optional)
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code. 
-- To use eslint with this project, make sure to install eslint from terminal:
-  - `npm install -g eslint`
-- To use eslint to analyze this project use this command:
-  - `eslint main.ts`
-  - eslint will then create a report with suggestions for code improvement by file and line number.
-- If your source code is in a folder, such as `src`, you can use eslint with this command to analyze all files in that folder:
-  - `eslint ./src/`
-
-## Funding URL
-
-You can include funding URLs where people who use your plugin can financially support it.
-
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
-
-```json
-{
-    "fundingUrl": "https://buymeacoffee.com"
-}
+dv.paragraph(await window.MinimalTasks.renderTaskList(dv, tasks));
 ```
 
-If you have multiple URLs, you can also do:
+### With Filtering
 
-```json
-{
-    "fundingUrl": {
-        "Buy Me a Coffee": "https://buymeacoffee.com",
-        "GitHub Sponsor": "https://github.com/sponsors",
-        "Patreon": "https://www.patreon.com/"
+```dataviewjs
+// Tasks with specific context
+const tasks = dv.pages('"gtd/actions"')
+    .where(t => t.contexts?.includes("focus"))
+    .where(t => t.status != "done");
+
+dv.paragraph(await window.MinimalTasks.renderTaskList(dv, tasks, {
+    showProjects: true,
+    showContexts: false
+}));
+```
+
+### With Options
+
+```dataviewjs
+const tasks = dv.pages('"tasks"')
+    .where(t => t.priority == "today");
+
+dv.paragraph(await window.MinimalTasks.renderTaskList(dv, tasks, {
+    showProjects: true,          // Show project links below tasks
+    showContexts: true,           // Show context pills
+    excludePills: ['person']      // Hide specific pill types
+}));
+```
+
+## Configuration
+
+### Plugin Settings
+
+Go to Settings → Minimal Tasks to customize:
+
+**Frontmatter Field Names** - Configure which frontmatter fields to use:
+- Status field (default: `status`)
+- Priority field (default: `priority`)
+- Projects field (default: `projects`)
+- Contexts field (default: `contexts`)
+- Due date field (default: `due`)
+- Scheduled field (default: `scheduled`)
+- And more...
+
+**Display Options**:
+- Show projects below tasks
+- Show project due dates
+- Show note icon for tasks with content
+
+### Task Frontmatter Structure
+
+Example task file (`tasks/my-task.md`):
+
+```yaml
+---
+status: open              # none, open, in-progress, done, dropped
+priority: today           # anytime, today, someday
+title: "Task title"
+contexts: [focus, home]   # Array of contexts
+projects: ["[[Project Name]]"]  # Array of project links
+due: 2025-11-19          # Deadline
+scheduled: 2025-11-18    # When available to work on
+discuss-with: ["[[Person Name]]"]  # For agenda items
+discuss-during: ["[[Meeting]]"]    # Which meeting
+store: "Store Name"      # For errands
+---
+```
+
+## Rendering Options
+
+The `renderTaskList` method accepts these options:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `showProjects` | boolean | true | Show project links below tasks |
+| `showContexts` | boolean | false | Show context pills |
+| `excludePills` | array | [] | Hide specific pill types: `'person'`, `'meeting'`, `'store'`, `'contexts'` |
+
+## Status and Priority Values
+
+### Status Options
+- `none` - No status (gray dot)
+- `open` - Open for work (blue dot)
+- `in-progress` - Currently working (yellow dot)
+- `done` - Completed (green dot)
+- `dropped` - Abandoned (red dot)
+
+### Priority Options
+- `anytime` - Regular task (• bullet)
+- `today` - Focus on today (⭐ star)
+- `someday` - Future consideration (💭 thought bubble)
+
+## Advanced Usage
+
+### Custom Queries
+
+```dataviewjs
+// Combine multiple filters
+const tasks = dv.pages('"tasks"')
+    .where(t => t.status == "in-progress" || t.priority == "today")
+    .where(t => !t.scheduled || dv.date(t.scheduled) <= dv.date('today'))
+    .where(t => t.contexts?.some(c => ["focus", "quick"].includes(c)));
+
+dv.paragraph(await window.MinimalTasks.renderTaskList(dv, tasks));
+```
+
+### Group by Context
+
+```dataviewjs
+const contexts = ["focus", "quick", "home"];
+
+for (const ctx of contexts) {
+    dv.header(3, ctx);
+
+    const tasks = dv.pages('"tasks"')
+        .where(t => t.contexts?.includes(ctx))
+        .where(t => t.status != "done");
+
+    if (tasks.length > 0) {
+        dv.paragraph(await window.MinimalTasks.renderTaskList(dv, tasks, {
+            showContexts: false  // Hide context pills since we're grouping by context
+        }));
+    } else {
+        dv.paragraph(`*No ${ctx} tasks*`);
     }
 }
 ```
 
-## API Documentation
+## API Reference
 
-See https://github.com/obsidianmd/obsidian-api
+### `window.MinimalTasks.renderTaskList(dv, tasks, options)`
+
+Main method for rendering task lists with automatic enrichment.
+
+**Parameters:**
+- `dv` (Object) - Dataview API object
+- `tasks` (Array|DataArray) - Array of Dataview page objects
+- `options` (Object) - Optional rendering options
+
+**Returns:** Promise<string> - HTML string
+
+**Features:**
+- Automatically checks for note content
+- Enriches project metadata with due dates
+- Generates proper Obsidian links
+- Sorts tasks by priority
+- Handles all metadata rendering
+
+### `window.MinimalTasks.renderTask(task, options)`
+
+Lower-level method for rendering a single task (pre-enriched data).
+
+## Styling
+
+The plugin includes default styles for status dots and priority badges. You can customize appearance in your vault's CSS snippets:
+
+```css
+/* Customize status dot colors */
+.task-status-dot[data-status="open"] {
+    background-color: #your-color;
+}
+
+/* Customize priority badge */
+.task-priority-badge {
+    font-size: 1em;
+}
+```
+
+## Contributing
+
+Issues and pull requests welcome! This plugin is designed to be simple and focused.
+
+## Acknowledgments
+
+The interactive task list layout was inspired by the TaskNotes plugin's visual design.
+
+## License
+
+MIT License - See LICENSE file for details
+
+## Author
+
+Created by Johnny Chadda for personal use and shared with the Obsidian community.
