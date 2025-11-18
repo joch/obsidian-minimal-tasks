@@ -18,9 +18,19 @@ A lightweight Obsidian plugin for interactive task rendering in DataviewJS lists
 
 ## Installation
 
-1. Copy the `minimal-tasks` folder to your vault's `.obsidian/plugins/` directory
-2. Reload Obsidian or restart the app
-3. Enable "Minimal Tasks" in Settings → Community plugins
+### Via BRAT (Recommended)
+
+1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin
+2. Open Command Palette and run "BRAT: Add a beta plugin for testing"
+3. Enter: `joch/obsidian-minimal-tasks`
+4. Enable the plugin in Settings → Community Plugins
+
+### Manual Installation
+
+1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/joch/obsidian-minimal-tasks/releases)
+2. Create folder: `VaultFolder/.obsidian/plugins/minimal-tasks/`
+3. Copy downloaded files to the folder
+4. Enable the plugin in Settings → Community Plugins
 
 ## Requirements
 
