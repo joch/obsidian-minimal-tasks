@@ -68,3 +68,115 @@
 .task-priority-badge:hover {
     transform: scale(1.2);
 }
+
+/* Flexbox-based task row structure */
+.minimal-task-row {
+    display: block;
+    margin-bottom: -0.5em;
+    line-height: 1.0;
+    padding: 0;
+}
+
+/* Main task line - flexbox for alignment */
+.minimal-task-main {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    padding: 0;
+    margin: 0;
+}
+
+/* Controls group (priority + status) */
+.minimal-task-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25em;
+    flex-shrink: 0;
+}
+
+/* Content area (title + metadata) */
+.minimal-task-content {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    flex-wrap: wrap;
+    flex-grow: 1;
+}
+
+/* Task title */
+.minimal-task-title {
+    /* Inherits link styling from .internal-link */
+}
+
+.minimal-task-title.is-completed {
+    text-decoration: line-through;
+    opacity: 0.6;
+}
+
+/* Note icon */
+.minimal-task-note-icon {
+    font-size: 0.85em;
+    color: var(--text-muted);
+}
+
+/* Metadata group */
+.minimal-task-metadata {
+    display: flex;
+    align-items: center;
+    gap: 0.25em;
+    flex-wrap: wrap;
+}
+
+/* Generic badge styling */
+.minimal-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25em;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 0.75em;
+    white-space: nowrap;
+    background: var(--background-modifier-border);
+    color: var(--text-muted);
+}
+
+/* Badge variants */
+.minimal-badge-date {
+    /* Date badges - default style */
+}
+
+.minimal-badge-date.is-overdue {
+    background: var(--background-modifier-error);
+    color: var(--text-on-accent);
+}
+
+.minimal-badge-context {
+    /* Context pills */
+}
+
+.minimal-badge-person {
+    /* Person pills */
+}
+
+.minimal-badge-meeting {
+    /* Meeting pills */
+}
+
+.minimal-badge-store {
+    /* Store pills */
+}
+
+/* Projects section */
+.minimal-task-projects {
+    margin-top: 0.25em;
+    padding-left: 3em;
+}
+
+.minimal-task-project {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    color: var(--text-muted);
+    font-size: 0.85em;
+    margin-bottom: 0.25em;
+}

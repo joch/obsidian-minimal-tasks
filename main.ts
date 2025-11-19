@@ -212,11 +212,10 @@ export default class MinimalTasksPlugin extends Plugin {
 	 * @returns Enriched task data
 	 */
 	async enrichTaskData(dv: DataviewAPI, task: any): Promise<EnrichedTask> {
-		// Generate link
+		// Generate link - build HTML manually instead of using dv.fileLink()
 		const title = task[this.settings.titleField];
-		const taskLink = title
-			? dv.fileLink(task.file.path, false, title)
-			: dv.fileLink(task.file.path);
+		const displayText = title || task.file.name.replace(/\.md$/, '');
+		const taskLink = `<a data-href="${task.file.path}" href="${task.file.path}" class="internal-link" target="_blank" rel="noopener">${displayText}</a>`;
 
 		// Enrich project metadata with due dates
 		let projectsWithMeta: ProjectMeta[] | undefined = undefined;
@@ -227,13 +226,18 @@ export default class MinimalTasksPlugin extends Plugin {
 				const projectLink = typeof project === 'string' ? project : String(project);
 
 				// Extract the path from wikilink [[path|display]] or [[path]]
-				const match = projectLink.match(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/);
+				const match = projectLink.match(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/);
 				if (!match) return { link: projectLink };
 
 				const projectPath = match[1];
+				const displayText = match[2] || projectPath.split('/').pop()?.replace(/\.md$/, '') || projectPath;
+
+				// Build HTML link
+				const htmlLink = `<a data-href="${projectPath}" href="${projectPath}" class="internal-link" target="_blank" rel="noopener">${displayText}</a>`;
+
 				const projectPage = dv.page(projectPath);
 
-				if (!projectPage) return { link: projectLink };
+				if (!projectPage) return { link: htmlLink };
 
 				// Add due date metadata if exists
 				if (projectPage[this.settings.dueField]) {
@@ -242,14 +246,14 @@ export default class MinimalTasksPlugin extends Plugin {
 					const formattedDate = dueDate.toFormat('MMM dd');
 
 					return {
-						link: projectLink,
+						link: htmlLink,
 						due: projectPage[this.settings.dueField],
 						dueFormatted: formattedDate,
 						overdue: dueDate < today
 					};
 				}
 
-				return { link: projectLink };
+				return { link: htmlLink };
 			});
 		}
 
@@ -368,61 +372,108 @@ export default class MinimalTasksPlugin extends Plugin {
 		// Get field values using configured field names
 		const status = (task as any)[this.settings.statusField] || 'none';
 		const priority = (task as any)[this.settings.priorityField] || 'anytime';
-		const contexts = (task as any)[this.settings.contextsField] || [];
-		const discussWith = (task as any)[this.settings.discussWithField];
-		const discussDuring = (task as any)[this.settings.discussDuringField];
-		const store = (task as any)[this.settings.storeField];
-		const projects = (task as any)[this.settings.projectField] || [];
+		const isCompleted = status === 'done' || status === 'dropped';
 
-		let html = '';
+		// Build task row container
+		const controls = this.createControls(priority, status, path);
+		const content = this.createContent(task, hasNotes, isCompleted, showContexts, excludePills);
+		const mainLine = this.createMainLine(controls, content);
+		const projectsSection = this.createProjectsSection(task, showProjects);
 
-		// 1. Priority badge
-		html += this.renderPriorityBadge(priority, path);
+		return `<div class="minimal-task-row" data-task-path="${path}" data-status="${status}" data-priority="${priority}">${mainLine}${projectsSection}</div>`;
+	}
 
-		// 2. Status dot
-		html += this.renderStatusDot(status, path);
+	private createControls(priority: string, status: string, path: string): string {
+		return `<div class="minimal-task-controls">${this.renderPriorityBadge(priority, path)}${this.renderStatusDot(status, path)}</div>`;
+	}
 
-		// 3. Task link (with strikethrough for done/dropped)
+	private createContent(task: EnrichedTask, hasNotes: boolean, isCompleted: boolean, showContexts: boolean, excludePills: string[]): string {
+		const title = this.createTitle(task, isCompleted);
+		const noteIcon = hasNotes && this.settings.showNoteIcon
+			? '<span class="minimal-task-note-icon">☰</span>'
+			: '';
+		const metadata = this.createMetadata(task, showContexts, excludePills);
+
+		return `<div class="minimal-task-content">${title}${noteIcon}${metadata}</div>`;
+	}
+
+	private createTitle(task: EnrichedTask, isCompleted: boolean): string {
 		const taskLinkHtml = task.link || 'Untitled';
-		const shouldStrikethrough = status === 'done' || status === 'dropped';
-		html += ' ' + (shouldStrikethrough
-			? `<span style="text-decoration: line-through; opacity: 0.6;">${taskLinkHtml}</span>`
-			: taskLinkHtml);
+		const completedClass = isCompleted ? ' is-completed' : '';
+		return `<span class="minimal-task-title${completedClass}">${taskLinkHtml}</span>`;
+	}
 
-		// 4. Note icon (if task has content)
-		if (hasNotes && this.settings.showNoteIcon) {
-			html += ' <span style="font-size: 0.85em;">☰</span>';
-		}
+	private createMetadata(task: EnrichedTask, showContexts: boolean, excludePills: string[]): string {
+		const badges: string[] = [];
 
-		// 5. Date badges (due and scheduled)
-		html += this.renderDateBadges(task);
+		// Date badges
+		const dateBadges = this.renderDateBadges(task);
+		if (dateBadges) badges.push(dateBadges);
 
-		// 6. Context pills (if enabled and not excluded)
+		// Context pills
+		const contexts = (task as any)[this.settings.contextsField] || [];
 		if (showContexts && contexts.length > 0 && !excludePills.includes('contexts')) {
-			html += this.renderContextPills(contexts);
+			badges.push(this.renderContextPills(contexts));
 		}
 
-		// 7. Discuss-with pills
+		// Discuss-with pills
+		const discussWith = (task as any)[this.settings.discussWithField];
 		if (discussWith && !excludePills.includes('person')) {
-			html += this.renderDiscussWithPills(discussWith);
+			badges.push(this.renderDiscussWithPills(discussWith));
 		}
 
-		// 8. Discuss-during pills
+		// Discuss-during pills
+		const discussDuring = (task as any)[this.settings.discussDuringField];
 		if (discussDuring && !excludePills.includes('meeting')) {
-			html += this.renderDiscussDuringPills(discussDuring);
+			badges.push(this.renderDiscussDuringPills(discussDuring));
 		}
 
-		// 9. Store pill (for errands)
+		// Store pill
+		const store = (task as any)[this.settings.storeField];
 		if (store && !excludePills.includes('store')) {
-			html += this.renderStorePill(store);
+			badges.push(this.renderStorePill(store));
 		}
 
-		// 10. Projects (on line below, with enriched due date data)
-		if (this.settings.showProjects && showProjects && projects.length > 0) {
-			html += this.renderProjects(task.projectsWithMeta || projects);
+		if (badges.length === 0) return '';
+
+		return `<span class="minimal-task-metadata">${badges.join('')}</span>`;
+	}
+
+	private createMainLine(controls: string, content: string): string {
+		return `<div class="minimal-task-main">${controls}${content}</div>`;
+	}
+
+	private createProjectsSection(task: EnrichedTask, showProjects: boolean): string {
+		if (!this.settings.showProjects || !showProjects) return '';
+
+		const projects = (task as any)[this.settings.projectField] || [];
+		if (projects.length === 0) return '';
+
+		const projectsWithMeta = task.projectsWithMeta || projects;
+		const projectItems = projectsWithMeta.map((project: ProjectMeta | any) => {
+			return this.createProjectItem(project);
+		}).join('');
+
+		return `<div class="minimal-task-projects">${projectItems}</div>`;
+	}
+
+	private createProjectItem(project: ProjectMeta | any): string {
+		let projectHtml = '';
+
+		if ((project as ProjectMeta).link) {
+			const p = project as ProjectMeta;
+			projectHtml = p.link;
+
+			if (this.settings.showProjectDueDates && p.due) {
+				const dueDate = p.dueFormatted || p.due;
+				const badgeClass = p.overdue ? ' is-overdue' : '';
+				projectHtml += ` <span class="minimal-badge minimal-badge-date${badgeClass}">📅 ${dueDate}</span>`;
+			}
+		} else {
+			projectHtml = typeof project === 'string' ? project : String(project);
 		}
 
-		return html;
+		return `<div class="minimal-task-project">${projectHtml}</div>`;
 	}
 
 	// Helper rendering methods
@@ -437,108 +488,57 @@ export default class MinimalTasksPlugin extends Plugin {
 	}
 
 	renderContextPills(contexts: string | string[]): string {
-		const pills = (Array.isArray(contexts) ? contexts : [contexts]).map(ctx =>
-			`<span style="background: var(--background-modifier-border); color: var(--text-muted); padding: 2px 6px; border-radius: 10px; font-size: 0.75em; margin-left: 4px;">@${ctx}</span>`
-		).join('');
-		return ` ${pills}`;
+		return (Array.isArray(contexts) ? contexts : [contexts])
+			.map(ctx => `<span class="minimal-badge minimal-badge-context">@${ctx}</span>`)
+			.join('');
 	}
 
 	renderDiscussWithPills(discussWith: string | string[]): string {
-		const people = Array.isArray(discussWith) ? discussWith : [discussWith];
-		let html = '';
-		people.forEach(person => {
-			html += ` <span style="background: var(--background-modifier-border); color: var(--text-muted); padding: 2px 6px; border-radius: 10px; font-size: 0.75em; margin-left: 4px;">👤${person}</span>`;
-		});
-		return html;
+		return (Array.isArray(discussWith) ? discussWith : [discussWith])
+			.map(person => `<span class="minimal-badge minimal-badge-person">👤${person}</span>`)
+			.join('');
 	}
 
 	renderDiscussDuringPills(discussDuring: string | string[]): string {
-		const events = Array.isArray(discussDuring) ? discussDuring : [discussDuring];
-		let html = '';
-		events.forEach(event => {
-			html += ` <span style="background: var(--background-modifier-border); color: var(--text-muted); padding: 2px 6px; border-radius: 10px; font-size: 0.75em; margin-left: 4px;">📅${event}</span>`;
-		});
-		return html;
+		return (Array.isArray(discussDuring) ? discussDuring : [discussDuring])
+			.map(event => `<span class="minimal-badge minimal-badge-meeting">📅${event}</span>`)
+			.join('');
 	}
 
 	renderStorePill(store: string): string {
-		return ` <span style="background: var(--background-modifier-border); color: var(--text-muted); padding: 2px 6px; border-radius: 10px; font-size: 0.75em; margin-left: 4px;">🏪${store}</span>`;
+		return `<span class="minimal-badge minimal-badge-store">🏪${store}</span>`;
 	}
 
 	renderDateBadges(task: EnrichedTask): string {
-		let html = '';
+		const badges: string[] = [];
 		const due = (task as any)[this.settings.dueField];
 		const scheduled = (task as any)[this.settings.scheduledField];
 
-		// Parse dates if they exist
-		if (due || scheduled) {
-			const today = new Date();
-			today.setHours(0, 0, 0, 0);
-
-			// Scheduled date badge (show first)
-			if (scheduled) {
-				const scheduledDate = new Date(scheduled);
-				scheduledDate.setHours(0, 0, 0, 0);
-				const formattedScheduled = this.formatDate(scheduledDate);
-				html += ` <span style="background: var(--background-modifier-border); color: var(--text-muted); padding: 2px 6px; border-radius: 10px; font-size: 0.75em; margin-left: 4px;">🗓️ ${formattedScheduled}</span>`;
-			}
-
-			// Due date badge (show second)
-			if (due) {
-				const dueDate = new Date(due);
-				dueDate.setHours(0, 0, 0, 0);
-				const isOverdue = dueDate < today;
-				const formattedDue = this.formatDate(dueDate);
-
-				if (isOverdue) {
-					html += ` <span style="background: var(--background-modifier-error); color: var(--text-on-accent); padding: 2px 6px; border-radius: 10px; font-size: 0.75em; margin-left: 4px;">⚠️ ${formattedDue}</span>`;
-				} else {
-					html += ` <span style="background: var(--background-modifier-border); color: var(--text-muted); padding: 2px 6px; border-radius: 10px; font-size: 0.75em; margin-left: 4px;">📅 ${formattedDue}</span>`;
-				}
-			}
+		if (scheduled) {
+			const scheduledDate = new Date(scheduled);
+			scheduledDate.setHours(0, 0, 0, 0);
+			const formattedScheduled = this.formatDate(scheduledDate);
+			badges.push(`<span class="minimal-badge minimal-badge-date">🗓️ ${formattedScheduled}</span>`);
 		}
 
-		return html;
+		if (due) {
+			const dueDate = new Date(due);
+			dueDate.setHours(0, 0, 0, 0);
+			const today = new Date();
+			today.setHours(0, 0, 0, 0);
+			const isOverdue = dueDate < today;
+			const formattedDue = this.formatDate(dueDate);
+			const icon = isOverdue ? '⚠️' : '📅';
+			const badgeClass = isOverdue ? ' is-overdue' : '';
+			badges.push(`<span class="minimal-badge minimal-badge-date${badgeClass}">${icon} ${formattedDue}</span>`);
+		}
+
+		return badges.join('');
 	}
 
 	formatDate(date: Date): string {
 		const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 		return `${months[date.getMonth()]} ${date.getDate()}`;
-	}
-
-	renderProjects(projects: ProjectMeta[] | any[]): string {
-		if (!projects || projects.length === 0) return '';
-
-		let html = '';
-		const projectLines = projects.map(project => {
-			// If enriched metadata exists (projectsWithMeta), use it
-			if ((project as ProjectMeta).link) {
-				// Enriched project with metadata
-				const p = project as ProjectMeta;
-				let line = p.link;
-				if (this.settings.showProjectDueDates && p.due) {
-					const dueDate = p.dueFormatted || p.due;
-					if (p.overdue) {
-						// Overdue: use error background like task badges
-						line += ` <span style="background: var(--background-modifier-error); color: var(--text-on-accent); padding: 2px 6px; border-radius: 10px; font-size: 0.75em; margin-left: 4px;">⚠️ ${dueDate}</span>`;
-					} else {
-						// Normal due date: use same style as task due badges
-						line += ` <span style="background: var(--background-modifier-border); color: var(--text-muted); padding: 2px 6px; border-radius: 10px; font-size: 0.75em; margin-left: 4px;">📅 ${dueDate}</span>`;
-					}
-				}
-				return line;
-			} else {
-				// Plain project string (fallback)
-				return typeof project === 'string' ? project : String(project);
-			}
-		});
-
-		// Add each project on its own line with proper styling
-		projectLines.forEach(line => {
-			html += `<br><span style="color: var(--text-muted); font-size: 0.85em; padding-left: 38px;">${line}</span>`;
-		});
-
-		return html;
 	}
 
 	getPriorityIcon(priority: string): string {
@@ -665,45 +665,22 @@ export default class MinimalTasksPlugin extends Plugin {
 		try {
 			await this.updateTaskField(taskPath, 'status', status);
 
-			// Update status dot color immediately (visual feedback)
+			// Update task row data attribute
+			const taskRow = element.closest('.minimal-task-row');
+			if (taskRow) {
+				taskRow.setAttribute('data-status', status);
+			}
+
+			// Update status dot
 			element.dataset.status = status;
 
-			// Update task link strikethrough
-			// Find the task link that follows this status dot (traverse siblings)
-			let taskLink: Element | null = null;
-			let sibling = element.nextElementSibling;
-			while (sibling) {
-				if (sibling.classList.contains('internal-link')) {
-					taskLink = sibling;
-					break;
-				}
-				// Also check if the link is wrapped in a span
-				const linkInside = sibling.querySelector('.internal-link');
-				if (linkInside) {
-					taskLink = linkInside;
-					break;
-				}
-				sibling = sibling.nextElementSibling;
-			}
-			if (taskLink) {
-				const shouldStrikethrough = status === 'done' || status === 'dropped';
-				if (shouldStrikethrough) {
-					// Wrap in span with strikethrough if not already wrapped
-					if (!taskLink.parentElement?.classList.contains('task-strikethrough')) {
-						const wrapper = document.createElement('span');
-						wrapper.classList.add('task-strikethrough');
-						wrapper.style.textDecoration = 'line-through';
-						wrapper.style.opacity = '0.6';
-						taskLink.parentElement?.insertBefore(wrapper, taskLink);
-						wrapper.appendChild(taskLink);
-					}
+			// Update title strikethrough via CSS class
+			const title = taskRow?.querySelector('.minimal-task-title');
+			if (title) {
+				if (status === 'done' || status === 'dropped') {
+					title.classList.add('is-completed');
 				} else {
-					// Remove wrapper if exists
-					const wrapper = taskLink.parentElement;
-					if (wrapper?.classList.contains('task-strikethrough')) {
-						wrapper.parentElement?.insertBefore(taskLink, wrapper);
-						wrapper.remove();
-					}
+					title.classList.remove('is-completed');
 				}
 			}
 
@@ -764,45 +741,22 @@ export default class MinimalTasksPlugin extends Plugin {
 		try {
 			await this.updateTaskField(taskPath, 'status', nextStatus);
 
-			// Update status dot color immediately (visual feedback)
+			// Update task row data attribute
+			const taskRow = element.closest('.minimal-task-row');
+			if (taskRow) {
+				taskRow.setAttribute('data-status', nextStatus);
+			}
+
+			// Update status dot
 			element.dataset.status = nextStatus;
 
-			// Update task link strikethrough
-			// Find the task link that follows this status dot (traverse siblings)
-			let taskLink: Element | null = null;
-			let sibling = element.nextElementSibling;
-			while (sibling) {
-				if (sibling.classList.contains('internal-link')) {
-					taskLink = sibling;
-					break;
-				}
-				// Also check if the link is wrapped in a span
-				const linkInside = sibling.querySelector('.internal-link');
-				if (linkInside) {
-					taskLink = linkInside;
-					break;
-				}
-				sibling = sibling.nextElementSibling;
-			}
-			if (taskLink) {
-				const shouldStrikethrough = nextStatus === 'done' || nextStatus === 'dropped';
-				if (shouldStrikethrough) {
-					// Wrap in span with strikethrough if not already wrapped
-					if (!taskLink.parentElement?.classList.contains('task-strikethrough')) {
-						const wrapper = document.createElement('span');
-						wrapper.classList.add('task-strikethrough');
-						wrapper.style.textDecoration = 'line-through';
-						wrapper.style.opacity = '0.6';
-						taskLink.parentElement?.insertBefore(wrapper, taskLink);
-						wrapper.appendChild(taskLink);
-					}
+			// Update title strikethrough via CSS class
+			const title = taskRow?.querySelector('.minimal-task-title');
+			if (title) {
+				if (nextStatus === 'done' || nextStatus === 'dropped') {
+					title.classList.add('is-completed');
 				} else {
-					// Remove wrapper if exists
-					const wrapper = taskLink.parentElement;
-					if (wrapper?.classList.contains('task-strikethrough')) {
-						wrapper.parentElement?.insertBefore(taskLink, wrapper);
-						wrapper.remove();
-					}
+					title.classList.remove('is-completed');
 				}
 			}
 
