@@ -376,11 +376,11 @@ export default class MinimalTasksPlugin extends Plugin {
 
 		let html = '';
 
-		// 1. Status dot
-		html += this.renderStatusDot(status, path);
-
-		// 2. Priority badge
+		// 1. Priority badge
 		html += this.renderPriorityBadge(priority, path);
+
+		// 2. Status dot
+		html += this.renderStatusDot(status, path);
 
 		// 3. Task link (with strikethrough for done/dropped)
 		const taskLinkHtml = task.link || 'Untitled';
@@ -535,7 +535,7 @@ export default class MinimalTasksPlugin extends Plugin {
 
 		// Add each project on its own line with proper styling
 		projectLines.forEach(line => {
-			html += `<br><span style="color: var(--text-muted); font-size: 0.85em; padding-left: 46px;">${line}</span>`;
+			html += `<br><span style="color: var(--text-muted); font-size: 0.85em; padding-left: 38px;">${line}</span>`;
 		});
 
 		return html;
