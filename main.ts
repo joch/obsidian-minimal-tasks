@@ -500,6 +500,21 @@ export default class MinimalTasksPlugin extends Plugin {
 	}
 
 	/**
+	 * Extract display name from a wikilink
+	 * Handles: [[Page Name]], [[path/Page Name]], [[path/Page|Display]]
+	 */
+	extractDisplayName(link: string): string {
+		if (!link) return link;
+
+		// Extract from [[Page Name]] or [[path/Page Name|Display]]
+		const match = link.match(/\[\[(?:[^\]|]+\|)?([^\]]+)\]\]/);
+		if (match) return match[1];
+
+		// Not a wikilink, return as-is
+		return link;
+	}
+
+	/**
 	 * Strip date/time prefix from event names
 	 * Events are named "YYYY-MM-DD HHMM Event Name" - this strips the prefix
 	 */
@@ -511,7 +526,11 @@ export default class MinimalTasksPlugin extends Plugin {
 
 	renderDiscussDuringPills(discussDuring: string | string[]): string {
 		return (Array.isArray(discussDuring) ? discussDuring : [discussDuring])
-			.map(event => `<span class="minimal-badge minimal-badge-meeting">📅${this.stripEventPrefix(event)}</span>`)
+			.map(event => {
+				const displayName = this.extractDisplayName(event);
+				const cleanName = this.stripEventPrefix(displayName);
+				return `<span class="minimal-badge minimal-badge-meeting">📅${cleanName}</span>`;
+			})
 			.join('');
 	}
 
