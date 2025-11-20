@@ -499,9 +499,19 @@ export default class MinimalTasksPlugin extends Plugin {
 			.join('');
 	}
 
+	/**
+	 * Strip date/time prefix from event names
+	 * Events are named "YYYY-MM-DD HHMM Event Name" - this strips the prefix
+	 */
+	stripEventPrefix(eventName: string): string {
+		if (!eventName) return eventName;
+		// Strip "YYYY-MM-DD HHMM " prefix if present
+		return eventName.replace(/^\d{4}-\d{2}-\d{2} \d{4} /, '');
+	}
+
 	renderDiscussDuringPills(discussDuring: string | string[]): string {
 		return (Array.isArray(discussDuring) ? discussDuring : [discussDuring])
-			.map(event => `<span class="minimal-badge minimal-badge-meeting">📅${event}</span>`)
+			.map(event => `<span class="minimal-badge minimal-badge-meeting">📅${this.stripEventPrefix(event)}</span>`)
 			.join('');
 	}
 
