@@ -495,7 +495,15 @@ export default class MinimalTasksPlugin extends Plugin {
 
 	renderDiscussWithPills(discussWith: string | string[]): string {
 		return (Array.isArray(discussWith) ? discussWith : [discussWith])
-			.map(person => `<span class="minimal-badge minimal-badge-person">👤${person}</span>`)
+			.map(person => {
+				const displayName = this.extractDisplayName(person);
+				const linkPath = this.extractLinkPath(person);
+
+				if (linkPath) {
+					return `<span class="minimal-badge minimal-badge-person"><a class="internal-link" data-href="${linkPath}" href="${linkPath}" target="_blank" rel="noopener">👤${displayName}</a></span>`;
+				}
+				return `<span class="minimal-badge minimal-badge-person">👤${displayName}</span>`;
+			})
 			.join('');
 	}
 
@@ -503,15 +511,35 @@ export default class MinimalTasksPlugin extends Plugin {
 	 * Extract display name from a wikilink
 	 * Handles: [[Page Name]], [[path/Page Name]], [[path/Page|Display]]
 	 */
-	extractDisplayName(link: string): string {
+	extractDisplayName(link: any): string {
 		if (!link) return link;
 
+		// Convert to string if it's not already (handles Dataview Link objects)
+		const linkStr = String(link);
+
 		// Extract from [[Page Name]] or [[path/Page Name|Display]]
-		const match = link.match(/\[\[(?:[^\]|]+\|)?([^\]]+)\]\]/);
+		const match = linkStr.match(/\[\[(?:[^\]|]+\|)?([^\]]+)\]\]/);
 		if (match) return match[1];
 
 		// Not a wikilink, return as-is
-		return link;
+		return linkStr;
+	}
+
+	/**
+	 * Extract the link path from a wikilink
+	 * Handles: [[path/Page Name]], [[path/Page Name|Display]]
+	 */
+	extractLinkPath(link: any): string | null {
+		if (!link) return null;
+
+		// Convert to string if it's not already (handles Dataview Link objects)
+		const linkStr = String(link);
+
+		// Extract path from [[path/Page Name]] or [[path/Page Name|Display]]
+		const match = linkStr.match(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/);
+		if (match) return match[1];
+
+		return null;
 	}
 
 	/**
