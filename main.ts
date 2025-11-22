@@ -14,6 +14,7 @@ interface MinimalTasksSettings {
 	titleField: string;
 	statusField: string;
 	priorityField: string;
+	rruleField: string;
 
 	// Display options
 	showProjects: boolean;
@@ -39,6 +40,7 @@ const DEFAULT_SETTINGS: MinimalTasksSettings = {
 	titleField: 'title',
 	statusField: 'status',
 	priorityField: 'priority',
+	rruleField: 'rrule',
 
 	// Display options
 	showProjects: true,
@@ -73,6 +75,7 @@ interface EnrichedTask {
 	store?: string;
 	due?: string;
 	scheduled?: string;
+	rrule?: string;
 	projects?: any[];
 	projectsWithMeta?: ProjectMeta[];
 }
@@ -269,6 +272,7 @@ export default class MinimalTasksPlugin extends Plugin {
 			store: task[this.settings.storeField],
 			due: task[this.settings.dueField],
 			scheduled: task[this.settings.scheduledField],
+			rrule: task[this.settings.rruleField],
 			projects: projects,
 			projectsWithMeta: projectsWithMeta
 		};
@@ -409,6 +413,12 @@ export default class MinimalTasksPlugin extends Plugin {
 		// Date badges
 		const dateBadges = this.renderDateBadges(task);
 		if (dateBadges) badges.push(dateBadges);
+
+		// Recurrence pill
+		const rrule = (task as any)[this.settings.rruleField];
+		if (rrule && !excludePills.includes('recurrence')) {
+			badges.push(this.renderRecurrencePill(rrule));
+		}
 
 		// Context pills
 		const contexts = (task as any)[this.settings.contextsField] || [];
@@ -564,6 +574,92 @@ export default class MinimalTasksPlugin extends Plugin {
 
 	renderStorePill(store: string): string {
 		return `<span class="minimal-badge minimal-badge-store">🏪${store}</span>`;
+	}
+
+	renderRecurrencePill(rrule: string): string {
+		const readable = this.formatRRuleReadable(rrule);
+		return `<span class="minimal-badge minimal-badge-recurrence">🔁 ${readable}</span>`;
+	}
+
+	private formatRRuleReadable(rrule: string): string {
+		if (!rrule) return "";
+
+		try {
+			const parts = this.parseRRule(rrule);
+			const freq = parts.FREQ;
+			const interval = parseInt(parts.INTERVAL || '1');
+			const byDay = parts.BYDAY;
+			const byMonthDay = parts.BYMONTHDAY;
+			const byMonth = parts.BYMONTH;
+
+			let text = "";
+
+			// Frequency
+			if (interval === 1) {
+				switch (freq) {
+					case 'DAILY': text = "Daily"; break;
+					case 'WEEKLY': text = "Weekly"; break;
+					case 'MONTHLY': text = "Monthly"; break;
+					case 'YEARLY': text = "Yearly"; break;
+				}
+			} else {
+				switch (freq) {
+					case 'DAILY': text = `Every ${interval} days`; break;
+					case 'WEEKLY': text = `Every ${interval} weeks`; break;
+					case 'MONTHLY': text = `Every ${interval} months`; break;
+					case 'YEARLY': text = `Every ${interval} years`; break;
+				}
+			}
+
+			// Add specifics
+			if (byDay) {
+				const dayNames = byDay.split(',').map((code: string) => {
+					const days: Record<string, string> = { SU: 'Sun', MO: 'Mon', TU: 'Tue', WE: 'Wed', TH: 'Thu', FR: 'Fri', SA: 'Sat' };
+					return days[code] || code;
+				});
+				text += " on " + dayNames.join(', ');
+			}
+
+			if (byMonthDay) {
+				text += " on the " + byMonthDay + this.ordinalSuffix(parseInt(byMonthDay));
+			}
+
+			if (byMonth) {
+				const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+				text += " in " + monthNames[parseInt(byMonth)];
+			}
+
+			return text;
+
+		} catch (error) {
+			console.error("Failed to format RRULE:", error);
+			return "Recurring"; // Fall back to simple text
+		}
+	}
+
+	private parseRRule(rrule: string): Record<string, string> {
+		const parts: Record<string, string> = {};
+		const segments = rrule.split(';');
+
+		segments.forEach(segment => {
+			const [key, value] = segment.split(':').length === 2
+				? segment.split(':')
+				: segment.split('=');
+			if (key && value) {
+				parts[key] = value;
+			}
+		});
+
+		return parts;
+	}
+
+	private ordinalSuffix(num: number): string {
+		const j = num % 10;
+		const k = num % 100;
+		if (j === 1 && k !== 11) return "st";
+		if (j === 2 && k !== 12) return "nd";
+		if (j === 3 && k !== 13) return "rd";
+		return "th";
 	}
 
 	renderDateBadges(task: EnrichedTask): string {
@@ -882,6 +978,15 @@ export default class MinimalTasksPlugin extends Plugin {
 		// Parse frontmatter
 		const { frontmatter, body } = this.parseFrontmatter(content);
 
+		// Check if this is a recurring task being marked as done
+		const isRecurring = frontmatter.rrule && String(frontmatter.rrule).trim().length > 0;
+		const isMarkingDone = field === 'status' && value === 'done';
+
+		if (isRecurring && isMarkingDone) {
+			// Create next instance before marking current as done
+			await this.createNextRecurringInstance(frontmatter, body);
+		}
+
 		// Update field
 		frontmatter[field] = value;
 
@@ -900,6 +1005,202 @@ export default class MinimalTasksPlugin extends Plugin {
 
 		// Write back
 		await this.app.vault.modify(file, newContent);
+	}
+
+	/**
+	 * Create next instance of a recurring task
+	 */
+	async createNextRecurringInstance(frontmatter: Frontmatter, body: string): Promise<void> {
+		try {
+			new Notice('🔁 Creating next instance...', 2000);
+
+			const rrule = String(frontmatter.rrule).replace(/^["']|["']$/g, ''); // Remove quotes
+			const today = new Date().toISOString().split('T')[0];
+
+			// Calculate next scheduled date using recurrence_calculator
+			const nextDate = this.calculateNextOccurrence(rrule, today);
+
+			// Create new task filename (timestamp-based)
+			const now = new Date();
+			const timestamp = now.toISOString()
+				.replace(/[:.]/g, '-')
+				.replace('T', '-')
+				.split('-')
+				.slice(0, 6)
+				.join('');
+			const formatted = timestamp.replace(/(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1$2$3-$4$5$6');
+			const newFilename = `${formatted}.md`;
+			const newPath = `gtd/actions/${newFilename}`;
+
+			// Build new frontmatter (clone all fields except status/dates)
+			const nowISO = now.toISOString();
+			const newFrontmatter: Frontmatter = {
+				status: 'open',
+				priority: frontmatter.priority || 'anytime',
+				dateCreated: nowISO,
+				dateModified: nowISO,
+				tags: frontmatter.tags || '[]',
+				type: 'action',
+				title: frontmatter.title || '',
+				contexts: frontmatter.contexts || [],
+				area: frontmatter.area || '""',
+				scheduled: nextDate,
+				rrule: `"${rrule}"`,
+			};
+
+			// Clone optional fields
+			if (frontmatter.projects) newFrontmatter.projects = frontmatter.projects;
+			if (frontmatter.due) newFrontmatter.due = frontmatter.due;
+			if (frontmatter.recurrence_start) newFrontmatter.recurrence_start = frontmatter.recurrence_start;
+			if (frontmatter.store) newFrontmatter.store = frontmatter.store;
+			if (frontmatter['discuss-with']) newFrontmatter['discuss-with'] = frontmatter['discuss-with'];
+			if (frontmatter['discuss-during']) newFrontmatter['discuss-during'] = frontmatter['discuss-during'];
+
+			// Build new content
+			const newContent = this.rebuildContent(newFrontmatter, body);
+
+			// Create new task file
+			await this.app.vault.create(newPath, newContent);
+
+			new Notice(`✅ Completed! Next: ${nextDate}`, 3000);
+
+		} catch (error) {
+			console.error('Failed to create recurring task instance:', error);
+			new Notice('⚠️ Failed to create next instance: ' + (error as Error).message, 5000);
+		}
+	}
+
+	/**
+	 * Calculate next occurrence using RRULE
+	 * This is a simplified implementation - uses the same logic as recurrence_calculator.js
+	 */
+	private calculateNextOccurrence(rrule: string, afterDate: string): string {
+		const parts = this.parseRRule(rrule);
+		const after = new Date(afterDate);
+		after.setDate(after.getDate() + 1); // Start from tomorrow
+
+		// Parse start date from DTSTART
+		const dtstart = parts.DTSTART;
+		if (!dtstart) throw new Error('DTSTART is required in RRULE');
+
+		const startDate = new Date(
+			parseInt(dtstart.substring(0, 4)),
+			parseInt(dtstart.substring(4, 6)) - 1,
+			parseInt(dtstart.substring(6, 8))
+		);
+
+		const freq = parts.FREQ;
+		if (!freq) throw new Error('FREQ is required in RRULE');
+
+		const interval = parseInt(parts.INTERVAL || '1');
+
+		let next: Date;
+
+		switch (freq) {
+			case 'DAILY':
+				next = new Date(after);
+				if (parts.BYDAY) {
+					// Specific days of week (e.g., weekdays)
+					const allowedDays = parts.BYDAY.split(',').map(this.dayCodeToNumber);
+					while (!allowedDays.includes(next.getDay())) {
+						next.setDate(next.getDate() + 1);
+					}
+				} else {
+					// Every N days from start date
+					const daysSinceStart = Math.floor((next.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+					const remainder = daysSinceStart % interval;
+					if (remainder !== 0) {
+						next.setDate(next.getDate() + (interval - remainder));
+					}
+				}
+				break;
+
+			case 'WEEKLY':
+				next = new Date(after);
+				const byDay = parts.BYDAY || ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][startDate.getDay()];
+				const allowedDays = byDay.split(',').map(this.dayCodeToNumber);
+
+				// Find next occurrence of allowed day
+				let found = false;
+				for (let i = 0; i < 7 && !found; i++) {
+					if (allowedDays.includes(next.getDay())) {
+						if (interval === 1) {
+							found = true;
+							break;
+						}
+						const weeksSinceStart = Math.floor((next.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 7));
+						if (weeksSinceStart % interval === 0) {
+							found = true;
+							break;
+						}
+					}
+					next.setDate(next.getDate() + 1);
+				}
+
+				if (!found) {
+					// Advance to next interval week
+					next = new Date(after);
+					next.setDate(next.getDate() + (interval * 7));
+					while (!allowedDays.includes(next.getDay())) {
+						next.setDate(next.getDate() + 1);
+					}
+				}
+				break;
+
+			case 'MONTHLY':
+				next = new Date(after);
+				const dayOfMonth = parts.BYMONTHDAY ? parseInt(parts.BYMONTHDAY) : startDate.getDate();
+				next.setDate(dayOfMonth);
+
+				if (next <= after) {
+					next.setMonth(next.getMonth() + interval);
+				} else {
+					const monthsSinceStart = (next.getFullYear() - startDate.getFullYear()) * 12 + (next.getMonth() - startDate.getMonth());
+					if (monthsSinceStart % interval !== 0) {
+						const remainder = monthsSinceStart % interval;
+						next.setMonth(next.getMonth() + (interval - remainder));
+					}
+				}
+
+				// Handle months with fewer days
+				while (next.getDate() !== dayOfMonth) {
+					next.setDate(0); // Go to last day of previous month
+					next.setMonth(next.getMonth() + 1);
+				}
+				break;
+
+			case 'YEARLY':
+				next = new Date(after);
+				const month = parts.BYMONTH ? parseInt(parts.BYMONTH) - 1 : startDate.getMonth();
+				const day = parts.BYMONTHDAY ? parseInt(parts.BYMONTHDAY) : startDate.getDate();
+				next.setMonth(month);
+				next.setDate(day);
+
+				if (next <= after) {
+					next.setFullYear(next.getFullYear() + interval);
+				} else {
+					const yearsSinceStart = next.getFullYear() - startDate.getFullYear();
+					if (yearsSinceStart % interval !== 0) {
+						const remainder = yearsSinceStart % interval;
+						next.setFullYear(next.getFullYear() + (interval - remainder));
+					}
+				}
+				break;
+
+			default:
+				throw new Error('Unsupported FREQ: ' + freq);
+		}
+
+		// Format as YYYY-MM-DD
+		const year = next.getFullYear();
+		const monthStr = String(next.getMonth() + 1).padStart(2, '0');
+		const dayStr = String(next.getDate()).padStart(2, '0');
+		return `${year}-${monthStr}-${dayStr}`;
+	}
+
+	private dayCodeToNumber(code: string): number {
+		const days: Record<string, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+		return days[code] || 0;
 	}
 
 	/**
