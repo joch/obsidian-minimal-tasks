@@ -21,6 +21,7 @@ interface MinimalTasksSettings {
 	showProjectDueDates: boolean;
 	showNoteIcon: boolean;
 	showContextPills: boolean;
+	noteContentIgnorePattern: string;
 
 	// Status and priority values
 	statuses: string[];
@@ -47,6 +48,7 @@ const DEFAULT_SETTINGS: MinimalTasksSettings = {
 	showProjectDueDates: true,
 	showNoteIcon: true,
 	showContextPills: false,  // Usually hidden in context views
+	noteContentIgnorePattern: '^\\s*```dataviewjs\\s*\\n\\s*await dv\\.view\\("(?:apps\\/dataview\\/)?unified-ribbon"\\);?\\s*\\n\\s*```\\s*',
 
 	// Status and priority values
 	statuses: ['none', 'open', 'in-progress', 'done', 'dropped'],
@@ -299,9 +301,15 @@ export default class MinimalTasksPlugin extends Plugin {
 			const frontmatterRegex = /^---\n[\s\S]*?\n---\n/;
 			let remainingContent = content.replace(frontmatterRegex, '').trim();
 
-			// Remove the action button ribbon (dataviewjs block)
-			const ribbonRegex = /^\s*```dataviewjs\s*\n\s*await dv\.view\("apps\/dataview\/action-button-ribbon"\);?\s*\n\s*```\s*/;
-			remainingContent = remainingContent.replace(ribbonRegex, '').trim();
+			// Remove content matching the ignore pattern (e.g., ribbon blocks)
+			if (this.settings.noteContentIgnorePattern) {
+				try {
+					const ignoreRegex = new RegExp(this.settings.noteContentIgnorePattern);
+					remainingContent = remainingContent.replace(ignoreRegex, '').trim();
+				} catch (error) {
+					console.error('Invalid noteContentIgnorePattern regex:', error);
+				}
+			}
 
 			// Check if there's any non-whitespace content after removing both frontmatter and ribbon
 			return remainingContent.length > 0;
@@ -1470,6 +1478,17 @@ class MinimalTasksSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.showNoteIcon)
 				.onChange(async (value) => {
 					this.plugin.settings.showNoteIcon = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Note content ignore pattern')
+			.setDesc('Regex pattern to ignore when detecting note content. Useful for stripping boilerplate code blocks like ribbons. Leave empty to disable.')
+			.addTextArea(text => text
+				.setPlaceholder('^\\s*```dataviewjs\\s*\\n\\s*await dv\\.view\\("(?:apps\\/dataview\\/)?unified-ribbon"\\);?\\s*\\n\\s*```\\s*')
+				.setValue(this.plugin.settings.noteContentIgnorePattern)
+				.onChange(async (value) => {
+					this.plugin.settings.noteContentIgnorePattern = value;
 					await this.plugin.saveSettings();
 				}));
 	}
