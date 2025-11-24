@@ -180,3 +180,17 @@
     font-size: 0.85em;
     margin-bottom: 0.25em;
 }
+
+/* Convert-to-action icon (appears in edit mode) */
+.minimal-tasks-convert-icon {
+    opacity: 0.3;
+    cursor: pointer;
+    margin-left: 4px;
+    font-size: 0.85em;
+    transition: opacity 0.2s ease;
+    user-select: none;
+}
+
+.minimal-tasks-convert-icon:hover {
+    opacity: 1;
+}

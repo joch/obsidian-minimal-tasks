@@ -1,4 +1,6 @@
 import { App, Plugin, PluginSettingTab, Setting, Menu, Notice, TFile, TAbstractFile } from 'obsidian';
+import { EditorView, ViewPlugin, ViewUpdate, Decoration, DecorationSet, WidgetType } from '@codemirror/view';
+import { Range } from '@codemirror/state';
 
 // Interfaces for settings and data structures
 interface MinimalTasksSettings {
@@ -22,6 +24,7 @@ interface MinimalTasksSettings {
 	showNoteIcon: boolean;
 	showContextPills: boolean;
 	noteContentIgnorePattern: string;
+	enableConvertIcon: boolean;
 
 	// Status and priority values
 	statuses: string[];
@@ -49,6 +52,7 @@ const DEFAULT_SETTINGS: MinimalTasksSettings = {
 	showNoteIcon: true,
 	showContextPills: false,  // Usually hidden in context views
 	noteContentIgnorePattern: '^\\s*```dataviewjs\\s*\\n\\s*await dv\\.view\\("(?:apps\\/dataview\\/)?unified-ribbon"\\);?\\s*\\n\\s*```\\s*',
+	enableConvertIcon: true,
 
 	// Status and priority values
 	statuses: ['none', 'open', 'in-progress', 'done', 'dropped'],
@@ -134,6 +138,77 @@ declare global {
 	}
 }
 
+// Widget for the convert-to-action icon
+class ConvertTaskWidget extends WidgetType {
+	constructor(
+		private plugin: MinimalTasksPlugin,
+		private taskText: string,
+		private lineFrom: number,
+		private lineTo: number
+	) {
+		super();
+	}
+
+	toDOM(view: EditorView): HTMLElement {
+		const icon = document.createElement('span');
+		icon.className = 'minimal-tasks-convert-icon';
+		icon.textContent = '➕';
+		icon.title = 'Convert to action';
+		icon.addEventListener('click', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			this.plugin.convertToAction(this.taskText, this.lineFrom, this.lineTo, view);
+		});
+		return icon;
+	}
+
+	eq(other: ConvertTaskWidget): boolean {
+		return this.taskText === other.taskText && this.lineFrom === other.lineFrom;
+	}
+}
+
+// ViewPlugin factory for task line decoration
+function createConvertTaskPlugin(plugin: MinimalTasksPlugin) {
+	return ViewPlugin.fromClass(
+		class {
+			decorations: DecorationSet;
+
+			constructor(view: EditorView) {
+				this.decorations = this.buildDecorations(view);
+			}
+
+			update(update: ViewUpdate) {
+				if (update.docChanged || update.viewportChanged) {
+					this.decorations = this.buildDecorations(update.view);
+				}
+			}
+
+			buildDecorations(view: EditorView): DecorationSet {
+				const widgets: Range<Decoration>[] = [];
+				// Match uncompleted markdown tasks: - [ ] task text
+				const taskRegex = /^(\s*)- \[ \] (.+)$/;
+
+				for (const { from, to } of view.visibleRanges) {
+					for (let pos = from; pos <= to;) {
+						const line = view.state.doc.lineAt(pos);
+						const match = line.text.match(taskRegex);
+						if (match && match[2]) {
+							const widget = Decoration.widget({
+								widget: new ConvertTaskWidget(plugin, match[2], line.from, line.to),
+								side: 1
+							});
+							widgets.push(widget.range(line.to));
+						}
+						pos = line.to + 1;
+					}
+				}
+				return Decoration.set(widgets, true);
+			}
+		},
+		{ decorations: v => v.decorations }
+	);
+}
+
 export default class MinimalTasksPlugin extends Plugin {
 	settings: MinimalTasksSettings;
 
@@ -158,6 +233,11 @@ export default class MinimalTasksPlugin extends Plugin {
 
 		// Add settings tab
 		this.addSettingTab(new MinimalTasksSettingTab(this.app, this));
+
+		// Register CodeMirror extension for convert icons (if enabled)
+		if (this.settings.enableConvertIcon) {
+			this.registerEditorExtension(createConvertTaskPlugin(this));
+		}
 	}
 
 	async loadSettings(): Promise<void> {
@@ -1271,10 +1351,15 @@ export default class MinimalTasksPlugin extends Plugin {
 
 		for (const [key, value] of Object.entries(frontmatter)) {
 			if (Array.isArray(value)) {
-				lines.push(`${key}:`);
-				value.forEach(item => {
-					lines.push(`  - ${item}`);
-				});
+				if (value.length === 0) {
+					// Empty array - output as []
+					lines.push(`${key}: []`);
+				} else {
+					lines.push(`${key}:`);
+					value.forEach(item => {
+						lines.push(`  - ${item}`);
+					});
+				}
 			} else {
 				lines.push(`${key}: ${value}`);
 			}
@@ -1297,6 +1382,132 @@ export default class MinimalTasksPlugin extends Plugin {
 				this.app.metadataCache.trigger('changed');
 			}
 		}, 100);
+	}
+
+	// ========================================
+	// Convert inline task to action file
+	// ========================================
+
+	/**
+	 * Convert an inline markdown task to an action file
+	 * @param taskText - The task text (without the "- [ ] " prefix)
+	 * @param lineFrom - Start position of the line
+	 * @param lineTo - End position of the line
+	 * @param view - The CodeMirror EditorView
+	 */
+	async convertToAction(taskText: string, lineFrom: number, lineTo: number, view: EditorView): Promise<void> {
+		try {
+			// 1. Detect context from current note
+			const context = await this.detectNoteContext();
+
+			// 2. Generate filename
+			const timestamp = this.generateTimestamp();
+			const filename = `${timestamp}.md`;
+			const path = `gtd/actions/${filename}`;
+
+			// 3. Build frontmatter
+			const frontmatter = this.buildConvertFrontmatter(taskText, context);
+
+			// 4. Create action file
+			const content = this.buildActionContent(frontmatter);
+			await this.app.vault.create(path, content);
+
+			// 5. Replace line with wikilink
+			const wikilink = `- [ ] [[${timestamp}|${taskText}]]`;
+			view.dispatch({
+				changes: { from: lineFrom, to: lineTo, insert: wikilink }
+			});
+
+			new Notice(`Created action: ${taskText}`);
+
+		} catch (error) {
+			console.error('Error converting task:', error);
+			new Notice('Error converting task: ' + (error as Error).message);
+		}
+	}
+
+	/**
+	 * Detect context (project/area) from the current note
+	 */
+	async detectNoteContext(): Promise<{ projects?: string[], area?: string }> {
+		const activeFile = this.app.workspace.getActiveFile();
+		if (!activeFile) return {};
+
+		const content = await this.app.vault.read(activeFile);
+		const { frontmatter } = this.parseFrontmatter(content);
+
+		// Check if we're in a project note
+		if (activeFile.path.startsWith('gtd/projects/') && !activeFile.path.includes('archive')) {
+			return { projects: [`[[${activeFile.basename}]]`] };
+		}
+
+		// Check if we're in an event with a project
+		if (frontmatter.type === 'event' && frontmatter.project) {
+			// Event project field is a string like "[[Project Name]]"
+			return { projects: [frontmatter.project] };
+		}
+
+		// Check for area field
+		if (frontmatter.area) {
+			return { area: frontmatter.area };
+		}
+
+		return {};
+	}
+
+	/**
+	 * Generate timestamp for action filename (YYYYMMDD-HHMMSS)
+	 */
+	generateTimestamp(): string {
+		const now = new Date();
+		const pad = (n: number) => n.toString().padStart(2, '0');
+		return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+	}
+
+	/**
+	 * Build frontmatter for a converted action
+	 */
+	buildConvertFrontmatter(title: string, context: { projects?: string[], area?: string }): Frontmatter {
+		const now = new Date().toISOString();
+		const fm: Frontmatter = {
+			type: 'action',
+			title: title,
+			status: 'open',
+			priority: 'anytime',
+			dateCreated: now,
+			dateModified: now,
+			tags: [],
+			contexts: [],
+		};
+
+		// Filter out any falsy values from projects array (handle both strings and objects)
+		const validProjects = (context.projects || []).filter(p => {
+			if (!p) return false;
+			const str = typeof p === 'string' ? p : String(p);
+			return str.trim().length > 0;
+		});
+
+		// Add project or area (mutually exclusive - projects take precedence)
+		if (validProjects.length > 0) {
+			fm.projects = validProjects;
+			fm.area = '""';
+		} else if (context.area && context.area.trim() && context.area !== '""') {
+			fm.projects = [];
+			fm.area = context.area;
+		} else {
+			fm.projects = [];
+			fm.area = '""';
+		}
+
+		return fm;
+	}
+
+	/**
+	 * Build action file content with frontmatter and ribbon
+	 */
+	buildActionContent(frontmatter: Frontmatter): string {
+		const body = '```dataviewjs\nawait dv.view("apps/dataview/unified-ribbon");\n```\n';
+		return this.rebuildContent(frontmatter, body);
 	}
 
 	onunload(): void {
@@ -1478,6 +1689,16 @@ class MinimalTasksSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.showNoteIcon)
 				.onChange(async (value) => {
 					this.plugin.settings.showNoteIcon = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Enable convert icon')
+			.setDesc('Show a convert icon at the end of markdown task lines in edit mode. Click to convert to an action file. Requires restart to take effect.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.enableConvertIcon)
+				.onChange(async (value) => {
+					this.plugin.settings.enableConvertIcon = value;
 					await this.plugin.saveSettings();
 				}));
 
