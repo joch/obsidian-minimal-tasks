@@ -166,6 +166,26 @@
     /* Store pills */
 }
 
+.minimal-badge-actions {
+    /* Action count badge - positive indicator */
+    background: var(--background-modifier-success);
+    color: var(--text-normal);
+}
+
+.minimal-badge-warning {
+    /* Warning badge - no actions */
+    background: var(--background-modifier-error);
+    color: var(--text-on-accent);
+}
+
+/* Project rows - different spacing than task rows */
+.minimal-project-row {
+    display: block;
+    margin-bottom: 0.25em;
+    line-height: 1.4;
+    padding: 0;
+}
+
 /* Projects section */
 .minimal-task-projects {
     margin-top: 0.25em;
