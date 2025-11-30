@@ -273,13 +273,11 @@ export default class MinimalTasksPlugin extends Plugin {
 			};
 		}));
 
-		// Sort tasks
-		const sortedTasks = this.sortTasks(processedTasks.map(p => p.task));
+		// Sort tasks (uses effective due date: earliest of task due and project dues)
+		const sortedProcessed = this.sortTasks(processedTasks);
 
 		// Render each task
-		const taskHtmlArray = sortedTasks.map(task => {
-			const processedTask = processedTasks.find(p => p.task.file.path === task.file.path);
-			if (!processedTask) return '';
+		const taskHtmlArray = sortedProcessed.map(processedTask => {
 			return this.renderTask(processedTask.enrichedTask, {
 				...options,
 				hasNotes: processedTask.hasNotes
@@ -399,31 +397,48 @@ export default class MinimalTasksPlugin extends Plugin {
 	}
 
 	/**
-	 * Sort tasks by standard criteria
-	 * @param tasks - Array of tasks to sort
-	 * @returns Sorted array of tasks
+	 * Get effective due date for a task (earliest of task due and project dues)
+	 * @param processedTask - Processed task with enriched data
+	 * @returns Earliest due date string or null
 	 */
-	sortTasks(tasks: any[]): any[] {
-		return tasks.sort((a: any, b: any) => {
+	private getEffectiveDueDate(processedTask: ProcessedTask): string | null {
+		const taskDue = processedTask.task[this.settings.dueField];
+		const projectDues = processedTask.enrichedTask.projectsWithMeta
+			?.map((p: ProjectMeta) => p.due)
+			.filter(Boolean) || [];
+
+		const allDates = [taskDue, ...projectDues].filter(Boolean);
+		if (allDates.length === 0) return null;
+
+		// Sort dates lexicographically (works for ISO date strings)
+		return allDates.sort()[0];
+	}
+
+	/**
+	 * Sort tasks by standard criteria
+	 * @param processedTasks - Array of processed tasks to sort
+	 * @returns Sorted array of processed tasks
+	 */
+	sortTasks(processedTasks: ProcessedTask[]): ProcessedTask[] {
+		return processedTasks.sort((a: ProcessedTask, b: ProcessedTask) => {
 			const statusField = this.settings.statusField;
 			const priorityField = this.settings.priorityField;
-			const dueField = this.settings.dueField;
 
 			// 1. In-progress tasks first
-			const aInProgress = a[statusField] === "in-progress";
-			const bInProgress = b[statusField] === "in-progress";
+			const aInProgress = a.task[statusField] === "in-progress";
+			const bInProgress = b.task[statusField] === "in-progress";
 			if (aInProgress && !bInProgress) return -1;
 			if (!aInProgress && bInProgress) return 1;
 
 			// 2. Priority: today tasks next
-			const aTodayPriority = a[priorityField] === "today";
-			const bTodayPriority = b[priorityField] === "today";
+			const aTodayPriority = a.task[priorityField] === "today";
+			const bTodayPriority = b.task[priorityField] === "today";
 			if (aTodayPriority && !bTodayPriority) return -1;
 			if (!aTodayPriority && bTodayPriority) return 1;
 
-			// 3. Tasks with due dates next
-			const aDue = a[dueField];
-			const bDue = b[dueField];
+			// 3. Tasks with effective due dates (task due or project due)
+			const aDue = this.getEffectiveDueDate(a);
+			const bDue = this.getEffectiveDueDate(b);
 			if (aDue && !bDue) return -1;
 			if (!aDue && bDue) return 1;
 			if (aDue && bDue) {
@@ -432,7 +447,7 @@ export default class MinimalTasksPlugin extends Plugin {
 			}
 
 			// 4. Finally, oldest first
-			return a.file.ctime - b.file.ctime;
+			return a.task.file.ctime - b.task.file.ctime;
 		});
 	}
 
