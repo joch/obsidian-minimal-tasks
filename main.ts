@@ -1147,6 +1147,50 @@ export default class MinimalTasksPlugin extends Plugin {
 		if (this.settings.enableConvertIcon) {
 			this.registerEditorExtension(createConvertTaskPlugin(this));
 		}
+
+		// Add ribbon icon for creating new actions
+		this.addRibbonIcon('plus-circle', 'New Action', async () => {
+			await this.createNewAction();
+		});
+	}
+
+	/**
+	 * Create a new action and open the edit modal
+	 */
+	async createNewAction(): Promise<void> {
+		try {
+			// Generate filename
+			const timestamp = this.generateTimestamp();
+			const filename = `${timestamp}.md`;
+			const path = `gtd/actions/${filename}`;
+
+			// Build default frontmatter
+			const now = new Date().toISOString();
+			const frontmatter: Frontmatter = {
+				type: 'action',
+				title: '',
+				status: 'open',
+				priority: 'anytime',
+				dateCreated: now,
+				dateModified: now,
+				tags: [],
+				contexts: [],
+				projects: [],
+				area: '""'
+			};
+
+			// Create action file
+			const body = '```dataviewjs\nawait dv.view("apps/dataview/unified-ribbon");\n```\n';
+			const content = this.rebuildContent(frontmatter, body);
+			await this.app.vault.create(path, content);
+
+			// Open the edit modal
+			new EditTaskModal(this.app, this, path).open();
+
+		} catch (error) {
+			console.error('Error creating action:', error);
+			new Notice('Error creating action: ' + (error as Error).message);
+		}
 	}
 
 	async loadSettings(): Promise<void> {
