@@ -551,6 +551,24 @@
     border-color: var(--background-modifier-error);
 }
 
+/* AI suggestion button */
+.edit-task-ai {
+    padding: 10px 14px;
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1em;
+    transition: all 0.2s ease;
+}
+
+.edit-task-ai:hover {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}
+
 /* Save button */
 .edit-task-save {
     flex: 1;

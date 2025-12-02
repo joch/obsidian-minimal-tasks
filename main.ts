@@ -566,6 +566,27 @@ class EditTaskModal extends Modal {
 		deleteBtn.setAttribute('title', 'Delete task');
 		deleteBtn.addEventListener('click', () => this.deleteTask());
 
+		// AI suggestion button
+		const aiBtn = buttonRow.createEl('button', {
+			cls: 'edit-task-ai',
+			text: '✨'
+		});
+		aiBtn.setAttribute('title', 'AI suggest fields');
+		aiBtn.addEventListener('click', () => this.suggestFieldsWithAI(
+			titleInput,
+			statusIcons,
+			priorityIcons,
+			dueInput,
+			scheduledInput,
+			contextsContainer,
+			projectSelect,
+			areaSelect,
+			discussWithSelect,
+			discussDuringSelect,
+			storeInput,
+			updateConditionalSections
+		));
+
 		// Save button
 		const saveBtn = buttonRow.createEl('button', {
 			cls: 'edit-task-save',
@@ -587,6 +608,352 @@ class EditTaskModal extends Modal {
 			new Notice('Task deleted');
 			this.close();
 		}
+	}
+
+	async suggestFieldsWithAI(
+		titleInput: HTMLInputElement,
+		statusIcons: HTMLElement,
+		priorityIcons: HTMLElement,
+		dueInput: HTMLInputElement,
+		scheduledInput: HTMLInputElement,
+		contextsContainer: HTMLElement,
+		projectSelect: HTMLSelectElement,
+		areaSelect: HTMLSelectElement,
+		discussWithSelect: HTMLSelectElement,
+		discussDuringSelect: HTMLSelectElement,
+		storeInput: HTMLInputElement,
+		updateConditionalSections: () => void
+	): Promise<void> {
+		try {
+			// Get the Opper AI plugin
+			const opperPlugin = (this.app as any).plugins.plugins['opper-ai'];
+			if (!opperPlugin) {
+				new Notice('Opper AI plugin not found. Please install and enable it.');
+				return;
+			}
+			if (!opperPlugin.api) {
+				new Notice('Opper AI plugin API not initialized. Please reload Obsidian.');
+				return;
+			}
+
+			new Notice('✨ Analyzing task...', 2000);
+
+			// Get current date
+			const today = new Date();
+			const currentDate = today.toISOString().split('T')[0];
+
+			// Get available projects
+			const projectFiles = this.app.vault.getMarkdownFiles()
+				.filter(f => f.path.startsWith('gtd/projects/') && !f.path.includes('archive'));
+			const projects = projectFiles.map(f => {
+				const cache = this.app.metadataCache.getFileCache(f);
+				const state = cache?.frontmatter?.state;
+				let areaField = cache?.frontmatter?.area;
+				let area = "No Area";
+
+				if (areaField && typeof areaField === 'string') {
+					areaField = areaField.replace(/^["']|["']$/g, '');
+					if (areaField.includes('|')) {
+						const parts = areaField.split('|');
+						if (parts.length >= 2) {
+							area = parts[1].replace(/\]\]$/, '').trim();
+						}
+					}
+				}
+
+				return { name: f.basename, area, state };
+			}).filter(p => p.state === 'active');
+
+			// Get available people
+			const personFiles = this.app.vault.getMarkdownFiles()
+				.filter(f => f.path.startsWith('notes/person/'));
+			const people = personFiles.map(f => f.basename);
+
+			// Get available meetings (future events)
+			const eventFiles = this.app.vault.getMarkdownFiles()
+				.filter(f => f.path.startsWith('events/'));
+			const meetings = eventFiles
+				.filter(f => {
+					const cache = this.app.metadataCache.getFileCache(f);
+					const eventDate = cache?.frontmatter?.date;
+					if (!eventDate) return true;
+					return eventDate >= currentDate;
+				})
+				.map(f => f.basename);
+
+			// Get available stores
+			const existingStores = new Set<string>();
+			this.app.vault.getMarkdownFiles()
+				.filter(f => f.path.startsWith('gtd/actions/'))
+				.forEach(f => {
+					const cache = this.app.metadataCache.getFileCache(f);
+					const store = cache?.frontmatter?.store;
+					if (store) {
+						const storeStr = String(store).replace(/^["']|["']$/g, '');
+						if (storeStr) existingStores.add(storeStr);
+					}
+				});
+			const stores = Array.from(existingStores);
+
+			// Get task title and body
+			const taskTitle = titleInput.value || '';
+			const taskBody = this.body || '';
+
+			// Call Opper AI
+			const result = await opperPlugin.api.call(
+				'detect-action-fields',
+				{
+					task_title: taskTitle,
+					task_body: taskBody,
+					current_date: currentDate,
+					available_contexts: ['focus', 'quick', 'relax', 'home', 'office', 'brf', 'school', 'errands', 'agenda', 'waiting'],
+					available_projects: projects,
+					available_areas: ['Personal', 'Family', 'Social', 'Home', 'Opper', 'Solvändan', 'Garage'],
+					available_people: people,
+					available_meetings: meetings,
+					available_stores: stores
+				},
+				{
+					instructions: this.getAIInstructions(),
+					outputSchema: this.getAIOutputSchema(),
+					model: 'gcp/gemini-flash-latest'
+				}
+			);
+
+			if (!result.json_payload) {
+				new Notice('No suggestions from AI');
+				return;
+			}
+
+			const detected = result.json_payload;
+			const appliedFields: string[] = [];
+
+			// Apply detected fields to the modal
+			// Title
+			if (detected.title && detected.title.trim()) {
+				titleInput.value = detected.title;
+				this.frontmatter.title = detected.title;
+				appliedFields.push('title');
+			}
+
+			// Priority
+			if (detected.priority) {
+				priorityIcons.querySelectorAll('.edit-task-icon').forEach(i => i.removeClass('active'));
+				const priorityIcon = priorityIcons.querySelector(`[title="${detected.priority}"]`);
+				if (priorityIcon) {
+					priorityIcon.addClass('active');
+					this.frontmatter.priority = detected.priority;
+					appliedFields.push('priority');
+				}
+			}
+
+			// Context
+			if (detected.context) {
+				const contextPill = contextsContainer.querySelector(`.context-pill:not(.active)`) as HTMLElement;
+				// Find and activate the matching context pill
+				contextsContainer.querySelectorAll('.context-pill').forEach((pill: Element) => {
+					const pillText = pill.textContent?.replace('@', '') || '';
+					if (pillText === detected.context && !pill.hasClass('active')) {
+						pill.addClass('active');
+						appliedFields.push('context');
+					}
+				});
+				this.updateContexts(contextsContainer);
+				updateConditionalSections();
+			}
+
+			// Project
+			if (detected.projects && detected.projects.length > 0) {
+				const projectName = detected.projects[0];
+				const projectFile = projectFiles.find(f => f.basename === projectName);
+				if (projectFile) {
+					projectSelect.value = projectFile.path;
+					this.frontmatter.projects = [`"[[${projectFile.path}|${projectFile.basename}]]"`];
+					appliedFields.push('project');
+				}
+			}
+
+			// Area (only if no project)
+			if (detected.area && (!detected.projects || detected.projects.length === 0)) {
+				const areaOption = Array.from(areaSelect.options).find(opt => opt.value === detected.area);
+				if (areaOption) {
+					areaSelect.value = detected.area;
+					this.frontmatter.area = `"[[gtd/areas/${detected.area}|${detected.area}]]"`;
+					appliedFields.push('area');
+				}
+			}
+
+			// Discuss-with
+			if (detected.discuss_with && detected.discuss_with.length > 0) {
+				const personName = detected.discuss_with[0];
+				const personFile = personFiles.find(f => f.basename === personName);
+				if (personFile) {
+					discussWithSelect.value = personFile.path;
+					this.frontmatter['discuss-with'] = [`"[[${personFile.path}|${personFile.basename}]]"`];
+					appliedFields.push('discuss-with');
+				}
+			}
+
+			// Discuss-during
+			if (detected.discuss_during && detected.discuss_during.length > 0) {
+				const meetingName = detected.discuss_during[0];
+				const meetingFile = eventFiles.find(f =>
+					f.basename === meetingName ||
+					f.basename.replace(/^\d{4}-\d{2}-\d{2} \d{4} /, '') === meetingName
+				);
+				if (meetingFile) {
+					discussDuringSelect.value = meetingFile.path;
+					const displayName = meetingFile.basename.replace(/^\d{4}-\d{2}-\d{2} \d{4} /, '');
+					this.frontmatter['discuss-during'] = [`"[[${meetingFile.path}|${displayName}]]"`];
+					appliedFields.push('discuss-during');
+				}
+			}
+
+			// Store
+			if (detected.store) {
+				storeInput.value = detected.store;
+				this.frontmatter.store = detected.store;
+				appliedFields.push('store');
+			}
+
+			// Due date (parse natural language)
+			if (detected.due) {
+				const dueDate = this.parseNaturalDate(detected.due, currentDate);
+				if (dueDate) {
+					dueInput.value = dueDate;
+					this.frontmatter.due = dueDate;
+					appliedFields.push('due');
+				}
+			}
+
+			// Scheduled date (parse natural language)
+			if (detected.scheduled) {
+				const scheduledDate = this.parseNaturalDate(detected.scheduled, currentDate);
+				if (scheduledDate) {
+					scheduledInput.value = scheduledDate;
+					this.frontmatter.scheduled = scheduledDate;
+					appliedFields.push('scheduled');
+				}
+			}
+
+			// Update conditional sections visibility
+			updateConditionalSections();
+
+			// Show result
+			if (appliedFields.length > 0) {
+				new Notice(`✨ Applied: ${appliedFields.join(', ')}`);
+			} else {
+				new Notice('No fields detected');
+			}
+
+		} catch (error) {
+			console.error('AI suggestion failed:', error);
+			new Notice('AI suggestion failed: ' + (error as Error).message);
+		}
+	}
+
+	private parseNaturalDate(dateStr: string, currentDate: string): string | null {
+		if (!dateStr) return null;
+
+		const str = dateStr.toLowerCase().trim();
+		const today = new Date(currentDate);
+
+		// Handle specific patterns
+		if (str === 'today') {
+			return currentDate;
+		}
+		if (str === 'tomorrow') {
+			const tomorrow = new Date(today);
+			tomorrow.setDate(tomorrow.getDate() + 1);
+			return tomorrow.toISOString().split('T')[0];
+		}
+		if (str.startsWith('next ')) {
+			const dayName = str.replace('next ', '');
+			const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+			const targetDay = days.indexOf(dayName);
+			if (targetDay >= 0) {
+				const result = new Date(today);
+				const currentDay = result.getDay();
+				let daysToAdd = targetDay - currentDay;
+				if (daysToAdd <= 0) daysToAdd += 7;
+				result.setDate(result.getDate() + daysToAdd);
+				return result.toISOString().split('T')[0];
+			}
+		}
+		// Try parsing as ISO date
+		const isoMatch = str.match(/\d{4}-\d{2}-\d{2}/);
+		if (isoMatch) return isoMatch[0];
+
+		return null;
+	}
+
+	private getAIInstructions(): string {
+		return `Analyze the task title and body to detect relevant GTD fields.
+
+**Context Detection Rules:**
+Suggest ONE primary context:
+- "focus": Deep work (write, design, review)
+- "quick": Tasks under 5 minutes (send email, reply, check)
+- "relax": Low-energy tasks (read, watch, browse)
+- "home"/"office"/"brf"/"school": Location-specific
+- "errands": Shopping or pickup (buy, pick up, get)
+- "agenda": Discussion topics (when people/meetings mentioned)
+- "waiting": Waiting on something/someone
+
+**Priority Detection:**
+- "today": Urgent cues (urgent, ASAP, today, now)
+- "someday": Later cues (maybe, someday, consider)
+- "anytime": Default
+
+**Date Detection:**
+Return dates as natural language (e.g., "next friday", "tomorrow").
+
+**Project/Area:**
+- If project matches → return project, leave area empty
+- If no project → suggest area based on keywords
+
+**People/Meeting Detection:**
+Match to available lists when discussion is mentioned.
+
+**Store Detection:**
+For errands, extract store names.
+
+**Title Generation:**
+If title can be improved (more concise, action-oriented), suggest improvement.`;
+	}
+
+	private getAIOutputSchema(): object {
+		return {
+			type: "object",
+			properties: {
+				context: { type: "string", description: "Single primary context or empty" },
+				projects: { type: "array", items: { type: "string" }, description: "Detected project names" },
+				area: { type: "string", description: "Suggested area if no projects" },
+				priority: { type: "string", enum: ["anytime", "today", "someday"] },
+				scheduled: { type: "string", description: "Natural language scheduled date" },
+				due: { type: "string", description: "Natural language due date" },
+				discuss_with: { type: "array", items: { type: "string" }, description: "People to discuss with" },
+				discuss_during: { type: "array", items: { type: "string" }, description: "Meetings" },
+				store: { type: "string", description: "Store name for errands" },
+				title: { type: "string", description: "Suggested title improvement" },
+				confidence_scores: {
+					type: "object",
+					properties: {
+						context: { type: "number" },
+						projects: { type: "number" },
+						area: { type: "number" },
+						priority: { type: "number" },
+						scheduled: { type: "number" },
+						due: { type: "number" },
+						discuss_with: { type: "number" },
+						discuss_during: { type: "number" },
+						store: { type: "number" },
+						title: { type: "number" }
+					}
+				}
+			},
+			required: ["context", "projects", "area", "priority", "scheduled", "due", "discuss_with", "discuss_during", "store", "title", "confidence_scores"]
+		};
 	}
 
 	private formatDateForInput(dateValue: any): string {
