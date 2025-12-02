@@ -394,27 +394,76 @@ class EditTaskModal extends Modal {
 		// Project dropdown
 		const projectGroup = projectAreaRow.createDiv({ cls: 'edit-task-inline-group' });
 		projectGroup.createSpan({ cls: 'edit-task-label', text: '📂 Project' });
-		const projectSelect = projectGroup.createEl('select', { cls: 'edit-task-select-small' });
+		const projectSelect = projectGroup.createEl('select', { cls: 'edit-task-select-project' });
 		projectSelect.createEl('option', { value: '', text: '(none)' });
 
-		// Get projects from vault
+		// Area emoji mapping and order
+		const areaEmoji: Record<string, string> = {
+			"Personal": "👨‍💻",
+			"Family": "🧑‍🎨",
+			"Social": "🕺",
+			"Home": "🏠",
+			"Opper": "🏢",
+			"Solvändan": "☀️",
+			"Garage": "🚗"
+		};
+		const areaOrder = ["Personal", "Family", "Social", "Home", "Opper", "Solvändan", "Garage", ""];
+
+		// Get projects from vault with area info
 		const projectFiles = this.app.vault.getMarkdownFiles()
 			.filter(f => f.path.startsWith('gtd/projects/') && !f.path.includes('archive'))
-			.sort((a, b) => a.basename.localeCompare(b.basename));
+			.map(f => {
+				const cache = this.app.metadataCache.getFileCache(f);
+				let areaField = cache?.frontmatter?.area;
+				let area = "";
 
-		const currentProject = this.getProjectBasename();
+				if (areaField && typeof areaField === 'string') {
+					areaField = areaField.replace(/^["']|["']$/g, '');
+					if (areaField.includes('|')) {
+						const parts = areaField.split('|');
+						if (parts.length >= 2) {
+							area = parts[1].replace(/\]\]$/, '').trim();
+						}
+					}
+				}
+
+				return { file: f, area };
+			})
+			.sort((a, b) => a.file.basename.localeCompare(b.file.basename));
+
+		// Group projects by area
+		const projectsByArea = new Map<string, typeof projectFiles>();
 		projectFiles.forEach(pf => {
-			const opt = projectSelect.createEl('option', {
-				value: pf.path,
-				text: pf.basename
+			const area = pf.area || "";
+			if (!projectsByArea.has(area)) {
+				projectsByArea.set(area, []);
+			}
+			projectsByArea.get(area)!.push(pf);
+		});
+
+		// Add projects grouped by area
+		const currentProject = this.getProjectBasename();
+		areaOrder.forEach(area => {
+			const areaProjects = projectsByArea.get(area);
+			if (!areaProjects || areaProjects.length === 0) return;
+
+			const emoji = areaEmoji[area] || "📦";
+			const groupLabel = area ? `${emoji} ${area}` : "📦 No Area";
+			const optgroup = projectSelect.createEl('optgroup', { attr: { label: groupLabel } });
+
+			areaProjects.forEach(pf => {
+				const opt = optgroup.createEl('option', {
+					value: pf.file.path,
+					text: pf.file.basename
+				});
+				if (pf.file.basename === currentProject) opt.selected = true;
 			});
-			if (pf.basename === currentProject) opt.selected = true;
 		});
 		projectSelect.addEventListener('change', () => {
 			if (projectSelect.value) {
-				const selectedFile = projectFiles.find(f => f.path === projectSelect.value);
-				if (selectedFile) {
-					this.frontmatter.projects = [`"[[${selectedFile.path}|${selectedFile.basename}]]"`];
+				const selectedProject = projectFiles.find(pf => pf.file.path === projectSelect.value);
+				if (selectedProject) {
+					this.frontmatter.projects = [`"[[${selectedProject.file.path}|${selectedProject.file.basename}]]"`];
 				}
 			} else {
 				this.frontmatter.projects = [];
@@ -426,10 +475,12 @@ class EditTaskModal extends Modal {
 		areaGroup.createSpan({ cls: 'edit-task-label', text: '🗂️ Area' });
 		const areaSelect = areaGroup.createEl('select', { cls: 'edit-task-select-small' });
 
-		const areas = ['', 'Personal', 'Family', 'Social', 'Opper', 'Solvändan', 'Garage'];
+		const areas = ['', 'Personal', 'Family', 'Social', 'Home', 'Opper', 'Solvändan', 'Garage'];
 		const currentArea = this.getAreaName();
 		areas.forEach(a => {
-			const opt = areaSelect.createEl('option', { value: a, text: a || '(none)' });
+			const emoji = a ? areaEmoji[a] || '📦' : '';
+			const text = a ? `${emoji} ${a}` : '(none)';
+			const opt = areaSelect.createEl('option', { value: a, text });
 			if (a === currentArea) opt.selected = true;
 		});
 		areaSelect.addEventListener('change', () => {

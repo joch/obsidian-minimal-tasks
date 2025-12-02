@@ -354,6 +354,25 @@
     border-color: var(--interactive-accent);
 }
 
+/* Wider select for projects */
+.edit-task-select-project {
+    width: 200px;
+    padding: 5px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 0.85em;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.edit-task-select-project:hover,
+.edit-task-select-project:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
 /* Smaller date input for inline rows */
 .edit-task-date-input-small {
     width: 120px;
