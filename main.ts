@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, Menu, Notice, TFile, TAbstractFile } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, Menu, Notice, TFile, TAbstractFile, Modal } from 'obsidian';
 import { EditorView, ViewPlugin, ViewUpdate, Decoration, DecorationSet, WidgetType } from '@codemirror/view';
 import { Range } from '@codemirror/state';
 
@@ -207,6 +207,497 @@ function createConvertTaskPlugin(plugin: MinimalTasksPlugin) {
 		},
 		{ decorations: v => v.decorations }
 	);
+}
+
+// ========================================
+// Edit Task Modal - Things 3-inspired design
+// ========================================
+
+class EditTaskModal extends Modal {
+	private taskPath: string;
+	private plugin: MinimalTasksPlugin;
+	private frontmatter: Frontmatter = {};
+	private body: string = '';
+
+	constructor(app: App, plugin: MinimalTasksPlugin, taskPath: string) {
+		super(app);
+		this.plugin = plugin;
+		this.taskPath = taskPath;
+	}
+
+	async onOpen(): Promise<void> {
+		const { contentEl } = this;
+		contentEl.addClass('edit-task-modal');
+
+		// Load current frontmatter
+		const file = this.app.vault.getAbstractFileByPath(this.taskPath);
+		if (!file || !(file instanceof TFile)) {
+			contentEl.createEl('p', { text: 'Error: Task file not found' });
+			return;
+		}
+
+		const content = await this.app.vault.read(file);
+		const parsed = this.plugin.parseFrontmatter(content);
+		this.frontmatter = parsed.frontmatter;
+		this.body = parsed.body;
+
+		// Build the form
+		this.buildForm();
+	}
+
+	private buildForm(): void {
+		const { contentEl } = this;
+		contentEl.empty();
+
+		// Title input (large, at top)
+		const titleContainer = contentEl.createDiv({ cls: 'edit-task-title-container' });
+		const titleInput = titleContainer.createEl('input', {
+			cls: 'edit-task-title-input',
+			attr: {
+				type: 'text',
+				placeholder: 'Task title...',
+				value: String(this.frontmatter.title || '').replace(/^["']|["']$/g, '')
+			}
+		});
+		titleInput.addEventListener('change', () => {
+			this.frontmatter.title = titleInput.value;
+		});
+
+		// Status & Priority section (icon toggles)
+		const statusPrioritySection = contentEl.createDiv({ cls: 'edit-task-section' });
+		const statusPriorityRow = statusPrioritySection.createDiv({ cls: 'edit-task-row-inline' });
+
+		// Status icons
+		const statusGroup = statusPriorityRow.createDiv({ cls: 'edit-task-inline-group' });
+		statusGroup.createSpan({ cls: 'edit-task-label', text: 'Status' });
+		const statusIcons = statusGroup.createDiv({ cls: 'edit-task-icon-group' });
+
+		const statusOptions = [
+			{ value: 'none', icon: '⚪' },
+			{ value: 'open', icon: '🔵' },
+			{ value: 'in-progress', icon: '🟡' },
+			{ value: 'done', icon: '✅' },
+			{ value: 'dropped', icon: '🔴' }
+		];
+
+		const currentStatus = this.frontmatter.status || 'none';
+		statusOptions.forEach(opt => {
+			const icon = statusIcons.createSpan({
+				cls: 'edit-task-icon' + (currentStatus === opt.value ? ' active' : ''),
+				text: opt.icon,
+				attr: { title: opt.value }
+			});
+			icon.addEventListener('click', () => {
+				statusIcons.querySelectorAll('.edit-task-icon').forEach(i => i.removeClass('active'));
+				icon.addClass('active');
+				this.frontmatter.status = opt.value;
+			});
+		});
+
+		// Priority icons
+		const priorityGroup = statusPriorityRow.createDiv({ cls: 'edit-task-inline-group' });
+		priorityGroup.createSpan({ cls: 'edit-task-label', text: 'Priority' });
+		const priorityIcons = priorityGroup.createDiv({ cls: 'edit-task-icon-group' });
+
+		const priorityOptions = [
+			{ value: 'anytime', icon: '•' },
+			{ value: 'today', icon: '⭐' },
+			{ value: 'someday', icon: '💭' }
+		];
+
+		const currentPriority = this.frontmatter.priority || 'anytime';
+		priorityOptions.forEach(opt => {
+			const icon = priorityIcons.createSpan({
+				cls: 'edit-task-icon' + (currentPriority === opt.value ? ' active' : ''),
+				text: opt.icon,
+				attr: { title: opt.value }
+			});
+			icon.addEventListener('click', () => {
+				priorityIcons.querySelectorAll('.edit-task-icon').forEach(i => i.removeClass('active'));
+				icon.addClass('active');
+				this.frontmatter.priority = opt.value;
+			});
+		});
+
+		// Dates section (same row)
+		const datesSection = contentEl.createDiv({ cls: 'edit-task-section' });
+		const datesRow = datesSection.createDiv({ cls: 'edit-task-row-inline' });
+
+		// Due date
+		const dueGroup = datesRow.createDiv({ cls: 'edit-task-inline-group' });
+		dueGroup.createSpan({ cls: 'edit-task-label', text: '📅 Due' });
+		const dueInput = dueGroup.createEl('input', {
+			cls: 'edit-task-date-input-small',
+			attr: {
+				type: 'date',
+				value: this.formatDateForInput(this.frontmatter.due)
+			}
+		});
+		dueInput.addEventListener('change', () => {
+			this.frontmatter.due = dueInput.value || undefined;
+			if (!dueInput.value) delete this.frontmatter.due;
+		});
+
+		// Scheduled date
+		const scheduledGroup = datesRow.createDiv({ cls: 'edit-task-inline-group' });
+		scheduledGroup.createSpan({ cls: 'edit-task-label', text: '🗓️ Scheduled' });
+		const scheduledInput = scheduledGroup.createEl('input', {
+			cls: 'edit-task-date-input-small',
+			attr: {
+				type: 'date',
+				value: this.formatDateForInput(this.frontmatter.scheduled)
+			}
+		});
+		scheduledInput.addEventListener('change', () => {
+			this.frontmatter.scheduled = scheduledInput.value || undefined;
+			if (!scheduledInput.value) delete this.frontmatter.scheduled;
+		});
+
+		// Contexts section (pill toggles)
+		const contextsSection = contentEl.createDiv({ cls: 'edit-task-section' });
+		contextsSection.createDiv({ cls: 'edit-task-section-label', text: 'Contexts' });
+		const contextsContainer = contextsSection.createDiv({ cls: 'edit-task-contexts' });
+
+		const allContexts = ['focus', 'quick', 'relax', 'home', 'office', 'brf', 'school', 'errands', 'agenda', 'waiting'];
+		const currentContexts = this.getArrayField('contexts');
+
+		// References for conditional sections (will be set later)
+		let discussSection: HTMLElement;
+		let storeSection: HTMLElement;
+
+		const updateConditionalSections = () => {
+			const activeContexts = this.getActiveContexts(contextsContainer);
+			if (discussSection) {
+				discussSection.style.display = activeContexts.includes('agenda') ? '' : 'none';
+			}
+			if (storeSection) {
+				storeSection.style.display = activeContexts.includes('errands') ? '' : 'none';
+			}
+		};
+
+		allContexts.forEach(ctx => {
+			const pill = contextsContainer.createSpan({
+				cls: 'context-pill' + (currentContexts.includes(ctx) ? ' active' : ''),
+				text: '@' + ctx
+			});
+			pill.addEventListener('click', () => {
+				pill.toggleClass('active', !pill.hasClass('active'));
+				this.updateContexts(contextsContainer);
+				updateConditionalSections();
+			});
+		});
+
+		// Project & Area section (same row)
+		const projectAreaSection = contentEl.createDiv({ cls: 'edit-task-section' });
+		const projectAreaRow = projectAreaSection.createDiv({ cls: 'edit-task-row-inline' });
+
+		// Project dropdown
+		const projectGroup = projectAreaRow.createDiv({ cls: 'edit-task-inline-group' });
+		projectGroup.createSpan({ cls: 'edit-task-label', text: '📂 Project' });
+		const projectSelect = projectGroup.createEl('select', { cls: 'edit-task-select-small' });
+		projectSelect.createEl('option', { value: '', text: '(none)' });
+
+		// Get projects from vault
+		const projectFiles = this.app.vault.getMarkdownFiles()
+			.filter(f => f.path.startsWith('gtd/projects/') && !f.path.includes('archive'))
+			.sort((a, b) => a.basename.localeCompare(b.basename));
+
+		const currentProject = this.getProjectBasename();
+		projectFiles.forEach(pf => {
+			const opt = projectSelect.createEl('option', {
+				value: pf.path,
+				text: pf.basename
+			});
+			if (pf.basename === currentProject) opt.selected = true;
+		});
+		projectSelect.addEventListener('change', () => {
+			if (projectSelect.value) {
+				const selectedFile = projectFiles.find(f => f.path === projectSelect.value);
+				if (selectedFile) {
+					this.frontmatter.projects = [`"[[${selectedFile.path}|${selectedFile.basename}]]"`];
+				}
+			} else {
+				this.frontmatter.projects = [];
+			}
+		});
+
+		// Area dropdown
+		const areaGroup = projectAreaRow.createDiv({ cls: 'edit-task-inline-group' });
+		areaGroup.createSpan({ cls: 'edit-task-label', text: '🗂️ Area' });
+		const areaSelect = areaGroup.createEl('select', { cls: 'edit-task-select-small' });
+
+		const areas = ['', 'Personal', 'Family', 'Social', 'Opper', 'Solvändan', 'Garage'];
+		const currentArea = this.getAreaName();
+		areas.forEach(a => {
+			const opt = areaSelect.createEl('option', { value: a, text: a || '(none)' });
+			if (a === currentArea) opt.selected = true;
+		});
+		areaSelect.addEventListener('change', () => {
+			if (areaSelect.value) {
+				this.frontmatter.area = `"[[gtd/areas/${areaSelect.value}|${areaSelect.value}]]"`;
+			} else {
+				this.frontmatter.area = '""';
+			}
+		});
+
+		// Discuss section (same row for with & during) - only shown when @agenda context
+		discussSection = contentEl.createDiv({ cls: 'edit-task-section' });
+		const discussRow = discussSection.createDiv({ cls: 'edit-task-row-inline' });
+
+		// Discuss-with dropdown
+		const discussWithGroup = discussRow.createDiv({ cls: 'edit-task-inline-group' });
+		discussWithGroup.createSpan({ cls: 'edit-task-label', text: '👤 With' });
+		const discussWithSelect = discussWithGroup.createEl('select', { cls: 'edit-task-select-small' });
+		discussWithSelect.createEl('option', { value: '', text: '(none)' });
+
+		const personFiles = this.app.vault.getMarkdownFiles()
+			.filter(f => f.path.startsWith('notes/person/'))
+			.sort((a, b) => a.basename.localeCompare(b.basename));
+
+		const currentDiscussWith = this.getDiscussWithBasename();
+		personFiles.forEach(pf => {
+			const opt = discussWithSelect.createEl('option', {
+				value: pf.path,
+				text: pf.basename
+			});
+			if (pf.basename === currentDiscussWith) opt.selected = true;
+		});
+		discussWithSelect.addEventListener('change', () => {
+			if (discussWithSelect.value) {
+				const selectedFile = personFiles.find(f => f.path === discussWithSelect.value);
+				if (selectedFile) {
+					this.frontmatter['discuss-with'] = [`"[[${selectedFile.path}|${selectedFile.basename}]]"`];
+				}
+			} else {
+				delete this.frontmatter['discuss-with'];
+			}
+		});
+
+		// Discuss-during dropdown
+		const discussDuringGroup = discussRow.createDiv({ cls: 'edit-task-inline-group' });
+		discussDuringGroup.createSpan({ cls: 'edit-task-label', text: '📅 During' });
+		const discussDuringSelect = discussDuringGroup.createEl('select', { cls: 'edit-task-select-small' });
+		discussDuringSelect.createEl('option', { value: '', text: '(none)' });
+
+		// Get events from vault (recent events first)
+		const eventFiles = this.app.vault.getMarkdownFiles()
+			.filter(f => f.path.startsWith('events/'))
+			.sort((a, b) => b.basename.localeCompare(a.basename)) // Most recent first
+			.slice(0, 50); // Limit to 50 most recent
+
+		const currentDiscussDuring = this.getDiscussDuringBasename();
+		eventFiles.forEach(ef => {
+			// Strip date/time prefix for display: "2025-11-16 1400 Meeting Name" -> "Meeting Name"
+			const displayName = ef.basename.replace(/^\d{4}-\d{2}-\d{2} \d{4} /, '');
+			const opt = discussDuringSelect.createEl('option', {
+				value: ef.path,
+				text: displayName
+			});
+			if (ef.basename === currentDiscussDuring || displayName === currentDiscussDuring) opt.selected = true;
+		});
+		discussDuringSelect.addEventListener('change', () => {
+			if (discussDuringSelect.value) {
+				const selectedFile = eventFiles.find(f => f.path === discussDuringSelect.value);
+				if (selectedFile) {
+					const displayName = selectedFile.basename.replace(/^\d{4}-\d{2}-\d{2} \d{4} /, '');
+					this.frontmatter['discuss-during'] = [`"[[${selectedFile.path}|${displayName}]]"`];
+				}
+			} else {
+				delete this.frontmatter['discuss-during'];
+			}
+		});
+
+		// Store section (input with datalist for suggestions) - only shown when @errands context
+		storeSection = contentEl.createDiv({ cls: 'edit-task-section' });
+		const storeRow = storeSection.createDiv({ cls: 'edit-task-row-inline' });
+		const storeGroup = storeRow.createDiv({ cls: 'edit-task-inline-group' });
+		storeGroup.createSpan({ cls: 'edit-task-label', text: '🏪 Store' });
+
+		const storeInput = storeGroup.createEl('input', {
+			cls: 'edit-task-input-small',
+			attr: {
+				type: 'text',
+				placeholder: 'Type or select...',
+				list: 'store-suggestions',
+				value: String(this.frontmatter.store || '').replace(/^["']|["']$/g, '')
+			}
+		});
+
+		// Create datalist with existing stores
+		const storeDatalist = storeRow.createEl('datalist', { attr: { id: 'store-suggestions' } });
+
+		// Get unique stores from existing tasks
+		const existingStores = new Set<string>();
+		this.app.vault.getMarkdownFiles()
+			.filter(f => f.path.startsWith('gtd/actions/'))
+			.forEach(f => {
+				const cache = this.app.metadataCache.getFileCache(f);
+				const store = cache?.frontmatter?.store;
+				if (store) {
+					const storeStr = String(store).replace(/^["']|["']$/g, '');
+					if (storeStr) existingStores.add(storeStr);
+				}
+			});
+
+		// Sort stores alphabetically and add as options
+		Array.from(existingStores).sort().forEach(store => {
+			storeDatalist.createEl('option', { value: store });
+		});
+
+		storeInput.addEventListener('change', () => {
+			if (storeInput.value) {
+				this.frontmatter.store = storeInput.value;
+			} else {
+				delete this.frontmatter.store;
+			}
+		});
+
+		// Set initial visibility of conditional sections
+		updateConditionalSections();
+
+		// Button row
+		const buttonRow = contentEl.createDiv({ cls: 'edit-task-button-row' });
+
+		// Delete button
+		const deleteBtn = buttonRow.createEl('button', {
+			cls: 'edit-task-delete',
+			text: '🗑️'
+		});
+		deleteBtn.setAttribute('title', 'Delete task');
+		deleteBtn.addEventListener('click', () => this.deleteTask());
+
+		// Save button
+		const saveBtn = buttonRow.createEl('button', {
+			cls: 'edit-task-save',
+			text: 'Save Changes'
+		});
+		saveBtn.addEventListener('click', () => this.saveChanges());
+	}
+
+	async deleteTask(): Promise<void> {
+		const file = this.app.vault.getAbstractFileByPath(this.taskPath);
+		if (!file || !(file instanceof TFile)) {
+			new Notice('Error: Task file not found');
+			return;
+		}
+
+		// Confirm deletion
+		if (confirm(`Delete "${this.frontmatter.title || file.basename}"?`)) {
+			await this.app.vault.delete(file);
+			new Notice('Task deleted');
+			this.close();
+		}
+	}
+
+	private formatDateForInput(dateValue: any): string {
+		if (!dateValue) return '';
+		const str = String(dateValue).replace(/^["']|["']$/g, '');
+		// Handle Luxon DateTime or ISO string
+		if (str.length >= 10) {
+			return str.substring(0, 10);
+		}
+		return '';
+	}
+
+	private getArrayField(field: string): string[] {
+		const value = this.frontmatter[field];
+		if (Array.isArray(value)) {
+			return value.map(v => String(v).replace(/^["']|["']$/g, ''));
+		}
+		return [];
+	}
+
+	private getProjectBasename(): string {
+		const projects = this.frontmatter.projects;
+		if (Array.isArray(projects) && projects.length > 0) {
+			const projStr = String(projects[0]);
+			const match = projStr.match(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/);
+			if (match) {
+				return match[2] || match[1].split('/').pop()?.replace(/\.md$/, '') || '';
+			}
+		}
+		return '';
+	}
+
+	private getAreaName(): string {
+		const area = this.frontmatter.area;
+		if (!area) return '';
+		const areaStr = String(area).replace(/^["']|["']$/g, '');
+		const match = areaStr.match(/\|([^\]]+)\]\]/);
+		return match ? match[1] : '';
+	}
+
+	private getDiscussWithBasename(): string {
+		const discussWith = this.frontmatter['discuss-with'];
+		if (Array.isArray(discussWith) && discussWith.length > 0) {
+			const str = String(discussWith[0]);
+			const match = str.match(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/);
+			if (match) {
+				return match[2] || match[1].split('/').pop()?.replace(/\.md$/, '') || '';
+			}
+		}
+		return '';
+	}
+
+	private getDiscussDuringBasename(): string {
+		const discussDuring = this.frontmatter['discuss-during'];
+		if (Array.isArray(discussDuring) && discussDuring.length > 0) {
+			const str = String(discussDuring[0]);
+			const match = str.match(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/);
+			if (match) {
+				return match[2] || match[1].split('/').pop()?.replace(/\.md$/, '') || '';
+			}
+		}
+		return '';
+	}
+
+	private updateContexts(container: HTMLElement): void {
+		const activePills = container.querySelectorAll('.context-pill.active');
+		const contexts: string[] = [];
+		activePills.forEach(pill => {
+			const text = pill.textContent?.replace('@', '') || '';
+			if (text) contexts.push(text);
+		});
+		this.frontmatter.contexts = contexts;
+	}
+
+	private getActiveContexts(container: HTMLElement): string[] {
+		const activePills = container.querySelectorAll('.context-pill.active');
+		const contexts: string[] = [];
+		activePills.forEach(pill => {
+			const text = pill.textContent?.replace('@', '') || '';
+			if (text) contexts.push(text);
+		});
+		return contexts;
+	}
+
+	async saveChanges(): Promise<void> {
+		const file = this.app.vault.getAbstractFileByPath(this.taskPath);
+		if (!file || !(file instanceof TFile)) {
+			new Notice('Error: Task file not found');
+			return;
+		}
+
+		// Update dateModified
+		this.frontmatter.dateModified = new Date().toISOString();
+
+		// Rebuild content
+		const newContent = this.plugin.rebuildContent(this.frontmatter, this.body);
+
+		// Write back
+		await this.app.vault.modify(file, newContent);
+
+		// Refresh Dataview
+		this.plugin.refreshDataview();
+
+		new Notice('Task updated');
+		this.close();
+	}
+
+	onClose(): void {
+		const { contentEl } = this;
+		contentEl.empty();
+	}
 }
 
 export default class MinimalTasksPlugin extends Plugin {
@@ -483,7 +974,7 @@ export default class MinimalTasksPlugin extends Plugin {
 
 		// Build task row container
 		const controls = this.createControls(priority, status, path);
-		const content = this.createContent(task, hasNotes, isCompleted, showContexts, excludePills);
+		const content = this.createContent(task, hasNotes, isCompleted, showContexts, excludePills, path);
 		const mainLine = this.createMainLine(controls, content);
 		const projectsSection = this.createProjectsSection(task, showProjects);
 
@@ -494,14 +985,15 @@ export default class MinimalTasksPlugin extends Plugin {
 		return `<div class="minimal-task-controls">${this.renderPriorityBadge(priority, path)}${this.renderStatusDot(status, path)}</div>`;
 	}
 
-	private createContent(task: EnrichedTask, hasNotes: boolean, isCompleted: boolean, showContexts: boolean, excludePills: string[]): string {
+	private createContent(task: EnrichedTask, hasNotes: boolean, isCompleted: boolean, showContexts: boolean, excludePills: string[], path: string): string {
 		const title = this.createTitle(task, isCompleted);
+		const editIcon = `<span class="minimal-task-edit-icon" data-task-path="${path}" title="Edit task">✏️</span>`;
 		const noteIcon = hasNotes && this.settings.showNoteIcon
 			? '<span class="minimal-task-note-icon">☰</span>'
 			: '';
 		const metadata = this.createMetadata(task, showContexts, excludePills);
 
-		return `<div class="minimal-task-content">${title}${noteIcon}${metadata}</div>`;
+		return `<div class="minimal-task-content">${title}${editIcon}${noteIcon}${metadata}</div>`;
 	}
 
 	private createTitle(task: EnrichedTask, isCompleted: boolean): string {
@@ -825,6 +1317,17 @@ export default class MinimalTasksPlugin extends Plugin {
 			event.preventDefault();
 			event.stopPropagation();
 			await this.cyclePriority(target);
+			return;
+		}
+
+		// Check if clicked on edit icon
+		if (target.classList.contains('minimal-task-edit-icon')) {
+			event.preventDefault();
+			event.stopPropagation();
+			const taskPath = target.dataset.taskPath;
+			if (taskPath) {
+				new EditTaskModal(this.app, this, taskPath).open();
+			}
 			return;
 		}
 	}

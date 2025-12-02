@@ -214,3 +214,357 @@
 .minimal-tasks-convert-icon:hover {
     opacity: 1;
 }
+
+/* Edit icon (appears after task title) */
+.minimal-task-edit-icon {
+    opacity: 0.3;
+    cursor: pointer;
+    font-size: 0.85em;
+    transition: opacity 0.2s ease;
+    user-select: none;
+}
+
+.minimal-task-edit-icon:hover {
+    opacity: 1;
+}
+
+/* ========================================
+   Edit Task Modal - Things 3-inspired
+   ======================================== */
+
+.edit-task-modal {
+    padding: 0;
+}
+
+.edit-task-modal .modal-content {
+    padding: 16px;
+}
+
+/* Title input - large, prominent at top */
+.edit-task-title-container {
+    margin-bottom: 16px;
+}
+
+.edit-task-title-input {
+    width: 100%;
+    font-size: 1.2em;
+    font-weight: 600;
+    border: none;
+    background: transparent;
+    color: var(--text-normal);
+    padding: 4px 0;
+    outline: none;
+    border-bottom: 2px solid transparent;
+    transition: border-color 0.2s ease;
+}
+
+.edit-task-title-input:focus {
+    border-bottom-color: var(--interactive-accent);
+}
+
+.edit-task-title-input::placeholder {
+    color: var(--text-faint);
+}
+
+/* Section styling */
+.edit-task-section {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.edit-task-section:last-of-type {
+    border-bottom: none;
+    margin-bottom: 4px;
+}
+
+.edit-task-section-label {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    font-weight: 500;
+}
+
+/* Row styling - label on left, input on right */
+.edit-task-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 0;
+    gap: 16px;
+}
+
+.edit-task-row-group .edit-task-row {
+    padding: 3px 0;
+}
+
+/* Inline row - multiple fields on same line */
+.edit-task-row-inline {
+    display: flex;
+    align-items: center;
+    padding: 4px 0;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.edit-task-inline-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 180px;
+}
+
+/* Stack inline rows on small screens */
+@media (max-width: 450px) {
+    .edit-task-row-inline {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .edit-task-inline-group {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .edit-task-select-small,
+    .edit-task-date-input-small,
+    .edit-task-input-small {
+        width: 140px;
+        flex: none;
+    }
+}
+
+/* Smaller select for inline rows */
+.edit-task-select-small {
+    width: 120px;
+    padding: 5px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 0.85em;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.edit-task-select-small:hover,
+.edit-task-select-small:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
+/* Smaller date input for inline rows */
+.edit-task-date-input-small {
+    width: 120px;
+    padding: 5px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 0.85em;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.edit-task-date-input-small:hover,
+.edit-task-date-input-small:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
+/* Smaller text input for inline rows */
+.edit-task-input-small {
+    width: 120px;
+    padding: 5px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 0.85em;
+    transition: border-color 0.2s ease;
+}
+
+.edit-task-input-small:hover,
+.edit-task-input-small:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
+.edit-task-input-small::placeholder {
+    color: var(--text-faint);
+}
+
+.edit-task-label {
+    color: var(--text-muted);
+    font-size: 0.9em;
+    flex-shrink: 0;
+}
+
+/* Icon group for status/priority toggles */
+.edit-task-icon-group {
+    display: flex;
+    gap: 4px;
+}
+
+.edit-task-icon {
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+    font-size: 1em;
+    opacity: 0.4;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.edit-task-icon:hover {
+    opacity: 0.7;
+    background: var(--background-modifier-hover);
+}
+
+.edit-task-icon.active {
+    opacity: 1;
+    background: var(--background-secondary);
+}
+
+/* Select dropdowns */
+.edit-task-select {
+    min-width: 140px;
+    padding: 6px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 0.9em;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.edit-task-select:hover {
+    border-color: var(--interactive-accent);
+}
+
+.edit-task-select:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
+/* Date inputs */
+.edit-task-date-input {
+    min-width: 140px;
+    padding: 6px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 0.9em;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.edit-task-date-input:hover,
+.edit-task-date-input:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
+/* Text inputs */
+.edit-task-input {
+    min-width: 140px;
+    padding: 6px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 0.9em;
+    transition: border-color 0.2s ease;
+}
+
+.edit-task-input:hover,
+.edit-task-input:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
+.edit-task-input::placeholder {
+    color: var(--text-faint);
+}
+
+/* Context pills - toggleable */
+.edit-task-contexts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.context-pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    cursor: pointer;
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    border: 1px solid var(--background-modifier-border);
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.context-pill:hover {
+    background: var(--background-modifier-hover);
+    border-color: var(--text-muted);
+}
+
+.context-pill.active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}
+
+.context-pill.active:hover {
+    background: var(--interactive-accent-hover);
+    border-color: var(--interactive-accent-hover);
+}
+
+/* Button row */
+.edit-task-button-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+/* Delete button */
+.edit-task-delete {
+    padding: 10px 14px;
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1em;
+    transition: all 0.2s ease;
+}
+
+.edit-task-delete:hover {
+    background: var(--background-modifier-error);
+    color: var(--text-on-accent);
+    border-color: var(--background-modifier-error);
+}
+
+/* Save button */
+.edit-task-save {
+    flex: 1;
+    padding: 10px;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.95em;
+    font-weight: 500;
+    transition: background 0.2s ease;
+}
+
+.edit-task-save:hover {
+    background: var(--interactive-accent-hover);
+}
