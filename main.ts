@@ -218,18 +218,33 @@ class EditTaskModal extends Modal {
 	private plugin: MinimalTasksPlugin;
 	private frontmatter: Frontmatter = {};
 	private body: string = '';
+	private isCreateMode: boolean = false;
+	private didSave: boolean = false;
 
-	constructor(app: App, plugin: MinimalTasksPlugin, taskPath: string) {
+	constructor(app: App, plugin: MinimalTasksPlugin, taskPath: string, initialFrontmatter?: Frontmatter) {
 		super(app);
 		this.plugin = plugin;
 		this.taskPath = taskPath;
+
+		// If initial frontmatter is provided, we're in create mode (file doesn't exist yet)
+		if (initialFrontmatter) {
+			this.isCreateMode = true;
+			this.frontmatter = initialFrontmatter;
+			this.body = '```dataviewjs\nawait dv.view("apps/dataview/unified-ribbon");\n```\n';
+		}
 	}
 
 	async onOpen(): Promise<void> {
 		const { contentEl } = this;
 		contentEl.addClass('edit-task-modal');
 
-		// Load current frontmatter
+		if (this.isCreateMode) {
+			// Create mode - use provided frontmatter, don't load from file
+			this.buildForm();
+			return;
+		}
+
+		// Edit mode - load current frontmatter from file
 		const file = this.app.vault.getAbstractFileByPath(this.taskPath);
 		if (!file || !(file instanceof TFile)) {
 			contentEl.createEl('p', { text: 'Error: Task file not found' });
@@ -647,15 +662,25 @@ class EditTaskModal extends Modal {
 	}
 
 	async deleteTask(): Promise<void> {
+		if (this.isCreateMode) {
+			// In create mode, just close without saving
+			this.close();
+			return;
+		}
+
 		const file = this.app.vault.getAbstractFileByPath(this.taskPath);
 		if (!file || !(file instanceof TFile)) {
 			new Notice('Error: Task file not found');
 			return;
 		}
 
+		// Get display title - strip quotes and use filename as fallback
+		const title = String(this.frontmatter.title || '').replace(/^["']|["']$/g, '') || file.basename;
+
 		// Confirm deletion
-		if (confirm(`Delete "${this.frontmatter.title || file.basename}"?`)) {
+		if (confirm(`Delete "${title}"?`)) {
 			await this.app.vault.delete(file);
+			this.didSave = true; // Mark as needing refresh
 			new Notice('Task deleted');
 			this.close();
 		}
@@ -1090,31 +1115,39 @@ If title can be improved (more concise, action-oriented), suggest improvement.`;
 	}
 
 	async saveChanges(): Promise<void> {
-		const file = this.app.vault.getAbstractFileByPath(this.taskPath);
-		if (!file || !(file instanceof TFile)) {
-			new Notice('Error: Task file not found');
-			return;
-		}
-
 		// Update dateModified
 		this.frontmatter.dateModified = new Date().toISOString();
 
 		// Rebuild content
 		const newContent = this.plugin.rebuildContent(this.frontmatter, this.body);
 
-		// Write back
-		await this.app.vault.modify(file, newContent);
+		if (this.isCreateMode) {
+			// Create mode - create the file now
+			await this.app.vault.create(this.taskPath, newContent);
+			new Notice('Action created');
+		} else {
+			// Edit mode - update existing file
+			const file = this.app.vault.getAbstractFileByPath(this.taskPath);
+			if (!file || !(file instanceof TFile)) {
+				new Notice('Error: Task file not found');
+				return;
+			}
+			await this.app.vault.modify(file, newContent);
+			new Notice('Task updated');
+		}
 
-		// Refresh Dataview
-		this.plugin.refreshDataview();
-
-		new Notice('Task updated');
+		this.didSave = true;
 		this.close();
 	}
 
 	onClose(): void {
 		const { contentEl } = this;
 		contentEl.empty();
+
+		// Refresh dataview if we saved or deleted
+		if (this.didSave) {
+			this.plugin.refreshDataview();
+		}
 	}
 }
 
@@ -1211,13 +1244,8 @@ export default class MinimalTasksPlugin extends Plugin {
 				area: prefill?.area ? `"[[gtd/areas/${prefill.area}|${prefill.area}]]"` : '""'
 			};
 
-			// Create action file
-			const body = '```dataviewjs\nawait dv.view("apps/dataview/unified-ribbon");\n```\n';
-			const content = this.rebuildContent(frontmatter, body);
-			await this.app.vault.create(path, content);
-
-			// Open the edit modal
-			new EditTaskModal(this.app, this, path).open();
+			// Open the edit modal in create mode (file will be created on save)
+			new EditTaskModal(this.app, this, path, frontmatter).open();
 
 		} catch (error) {
 			console.error('Error creating action:', error);
