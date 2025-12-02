@@ -387,10 +387,16 @@ class EditTaskModal extends Modal {
 		const updateConditionalSections = () => {
 			const activeContexts = this.getActiveContexts(contextsContainer);
 			if (discussSection) {
-				discussSection.style.display = activeContexts.includes('agenda') ? '' : 'none';
+				// Show if @agenda context OR if discuss-with/discuss-during has a value
+				const hasDiscussValue = this.frontmatter['discuss-with']?.length > 0 ||
+				                        this.frontmatter['discuss-during']?.length > 0;
+				discussSection.style.display = (activeContexts.includes('agenda') || hasDiscussValue) ? '' : 'none';
 			}
 			if (storeSection) {
-				storeSection.style.display = activeContexts.includes('errands') ? '' : 'none';
+				// Show if @errands context OR if store has a value
+				const hasStoreValue = this.frontmatter.store &&
+				                      String(this.frontmatter.store).replace(/^["']|["']$/g, '').trim() !== '';
+				storeSection.style.display = (activeContexts.includes('errands') || hasStoreValue) ? '' : 'none';
 			}
 		};
 
@@ -483,6 +489,9 @@ class EditTaskModal extends Modal {
 				const selectedProject = projectFiles.find(pf => pf.file.path === projectSelect.value);
 				if (selectedProject) {
 					this.frontmatter.projects = [`"[[${selectedProject.file.path}|${selectedProject.file.basename}]]"`];
+					// Clear area when project is selected (projects have their own area)
+					areaSelect.value = '';
+					this.frontmatter.area = '""';
 				}
 			} else {
 				this.frontmatter.projects = [];
