@@ -116,7 +116,15 @@
 /* Note icon */
 .minimal-task-note-icon {
     font-size: 0.85em;
-    color: var(--text-muted);
+    opacity: 0.3;
+    transition: opacity 0.2s ease;
+    user-select: none;
+    position: relative;
+    top: -1px;
+}
+
+.minimal-task-note-icon:hover {
+    opacity: 1;
 }
 
 /* Metadata group */
