@@ -1152,12 +1152,44 @@ export default class MinimalTasksPlugin extends Plugin {
 		this.addRibbonIcon('plus-circle', 'New Action', async () => {
 			await this.createNewAction();
 		});
+
+		// Register commands
+		this.addCommand({
+			id: 'new-action',
+			name: 'Create new action',
+			callback: async () => {
+				await this.createNewAction();
+			}
+		});
+
+		this.addCommand({
+			id: 'new-action-from-context',
+			name: 'Create new action from current note',
+			callback: async () => {
+				await this.createNewActionFromContext();
+			}
+		});
+
+		this.addCommand({
+			id: 'edit-action',
+			name: 'Edit current action',
+			checkCallback: (checking: boolean) => {
+				const activeFile = this.app.workspace.getActiveFile();
+				if (activeFile && activeFile.path.startsWith('gtd/actions/')) {
+					if (!checking) {
+						new EditTaskModal(this.app, this, activeFile.path).open();
+					}
+					return true;
+				}
+				return false;
+			}
+		});
 	}
 
 	/**
 	 * Create a new action and open the edit modal
 	 */
-	async createNewAction(): Promise<void> {
+	async createNewAction(prefill?: { project?: string; context?: string; area?: string }): Promise<void> {
 		try {
 			// Generate filename
 			const timestamp = this.generateTimestamp();
@@ -1174,9 +1206,9 @@ export default class MinimalTasksPlugin extends Plugin {
 				dateCreated: now,
 				dateModified: now,
 				tags: [],
-				contexts: [],
-				projects: [],
-				area: '""'
+				contexts: prefill?.context ? [prefill.context] : [],
+				projects: prefill?.project ? [`"[[${prefill.project}]]"`] : [],
+				area: prefill?.area ? `"[[gtd/areas/${prefill.area}|${prefill.area}]]"` : '""'
 			};
 
 			// Create action file
@@ -1191,6 +1223,47 @@ export default class MinimalTasksPlugin extends Plugin {
 			console.error('Error creating action:', error);
 			new Notice('Error creating action: ' + (error as Error).message);
 		}
+	}
+
+	/**
+	 * Create a new action with context pre-filled from current note
+	 */
+	async createNewActionFromContext(): Promise<void> {
+		const activeFile = this.app.workspace.getActiveFile();
+		if (!activeFile) {
+			// No active file, just create a blank action
+			await this.createNewAction();
+			return;
+		}
+
+		const cache = this.app.metadataCache.getFileCache(activeFile);
+		const type = cache?.frontmatter?.type;
+
+		let prefill: { project?: string; context?: string; area?: string } = {};
+
+		if (type === 'project') {
+			// Pre-fill with this project
+			prefill.project = activeFile.path;
+		} else if (type === 'event' || type === 'meeting') {
+			// Pre-fill with project from event if it has one
+			const projectLink = cache?.frontmatter?.project;
+			if (projectLink) {
+				const match = String(projectLink).match(/\[\[([^\]|]+)/);
+				if (match) {
+					const projectBasename = match[1].split('/').pop()?.replace(/\.md$/, '');
+					const projectFile = this.app.vault.getMarkdownFiles()
+						.find(f => f.basename === projectBasename && f.path.startsWith('gtd/projects/'));
+					if (projectFile) {
+						prefill.project = projectFile.path;
+					}
+				}
+			}
+		} else if (activeFile.path.startsWith('gtd/areas/')) {
+			// Pre-fill with this area
+			prefill.area = activeFile.basename;
+		}
+
+		await this.createNewAction(prefill);
 	}
 
 	async loadSettings(): Promise<void> {
