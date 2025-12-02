@@ -1,7 +1,7 @@
 {
 	"id": "minimal-tasks",
 	"name": "Minimal Tasks",
-	"version": "0.3.0",
+	"version": "0.3.1",
 	"minAppVersion": "0.15.0",
 	"description": "Lightweight plugin for interactive task status and priority in DataviewJS lists. Click status dots and priority badges to cycle values. Supports recurring tasks with RRULE. Convert inline tasks to action files.",
 	"author": "Johnny Chadda",
