@@ -221,7 +221,7 @@ class EditTaskModal extends Modal {
 	private isCreateMode: boolean = false;
 	private didSave: boolean = false;
 
-	constructor(app: App, plugin: MinimalTasksPlugin, taskPath: string, initialFrontmatter?: Frontmatter) {
+	constructor(app: App, plugin: MinimalTasksPlugin, taskPath: string, initialFrontmatter?: Frontmatter, initialBody?: string) {
 		super(app);
 		this.plugin = plugin;
 		this.taskPath = taskPath;
@@ -230,7 +230,11 @@ class EditTaskModal extends Modal {
 		if (initialFrontmatter) {
 			this.isCreateMode = true;
 			this.frontmatter = initialFrontmatter;
+			// Default body with unified-ribbon, plus any additional content
 			this.body = '```dataviewjs\nawait dv.view("apps/dataview/unified-ribbon");\n```\n';
+			if (initialBody) {
+				this.body += '\n' + initialBody;
+			}
 		}
 	}
 
@@ -1222,7 +1226,7 @@ export default class MinimalTasksPlugin extends Plugin {
 	/**
 	 * Create a new action and open the edit modal
 	 */
-	async createNewAction(prefill?: { project?: string; context?: string; area?: string }): Promise<void> {
+	async createNewAction(prefill?: { project?: string; context?: string; area?: string; body?: string }): Promise<void> {
 		try {
 			// Generate filename
 			const timestamp = this.generateTimestamp();
@@ -1245,7 +1249,7 @@ export default class MinimalTasksPlugin extends Plugin {
 			};
 
 			// Open the edit modal in create mode (file will be created on save)
-			new EditTaskModal(this.app, this, path, frontmatter).open();
+			new EditTaskModal(this.app, this, path, frontmatter, prefill?.body).open();
 
 		} catch (error) {
 			console.error('Error creating action:', error);
@@ -1267,7 +1271,7 @@ export default class MinimalTasksPlugin extends Plugin {
 		const cache = this.app.metadataCache.getFileCache(activeFile);
 		const type = cache?.frontmatter?.type;
 
-		let prefill: { project?: string; context?: string; area?: string } = {};
+		let prefill: { project?: string; context?: string; area?: string; body?: string } = {};
 
 		if (type === 'project') {
 			// Pre-fill with this project
@@ -1289,6 +1293,22 @@ export default class MinimalTasksPlugin extends Plugin {
 		} else if (activeFile.path.startsWith('gtd/areas/')) {
 			// Pre-fill with this area
 			prefill.area = activeFile.basename;
+		}
+
+		// For checklists, include the body content in the new action
+		if (type === 'checklist-template' || type === 'checklist') {
+			const content = await this.app.vault.read(activeFile);
+			const parsed = this.parseFrontmatter(content);
+			// Remove any existing dataviewjs blocks from the body
+			const cleanBody = parsed.body
+				.replace(/```dataviewjs\s*\n[\s\S]*?\n```\s*/g, '')
+				.replace(/---\s*$/g, '')  // Remove trailing separators
+				.trim();
+			if (cleanBody) {
+				// Add link to source and the content
+				const sourceLink = `From: [[${activeFile.path.replace(/\.md$/, '')}]]`;
+				prefill.body = `${sourceLink}\n\n${cleanBody}`;
+			}
 		}
 
 		await this.createNewAction(prefill);
