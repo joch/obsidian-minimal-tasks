@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, Menu, Notice, TFile, TAbstractFile, Modal } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, Menu, Notice, TFile, TAbstractFile, Modal, MarkdownPostProcessorContext } from 'obsidian';
 import { EditorView, ViewPlugin, ViewUpdate, Decoration, DecorationSet, WidgetType } from '@codemirror/view';
 import { Range } from '@codemirror/state';
 
@@ -167,6 +167,172 @@ class ConvertTaskWidget extends WidgetType {
 	}
 }
 
+// Widget for rendering action links as full task rows
+class ActionLinkWidget extends WidgetType {
+	constructor(
+		private plugin: MinimalTasksPlugin,
+		private actionPath: string,
+		private displayTitle: string
+	) {
+		super();
+	}
+
+	toDOM(): HTMLElement {
+		// Use a span container for inline rendering in editor
+		const container = document.createElement('span');
+		container.className = 'minimal-task-inline';
+
+		// Get frontmatter from metadata cache (synchronous)
+		const file = this.plugin.app.vault.getAbstractFileByPath(this.actionPath + '.md');
+		const cache = file ? this.plugin.app.metadataCache.getFileCache(file as TFile) : null;
+		const fm = cache?.frontmatter || {};
+
+		const status = fm.status || 'open';
+		const priority = fm.priority || 'anytime';
+		const title = fm.title || this.displayTitle;
+
+		// Check if action has body content (notes) - exclude code blocks like dataviewjs
+		const hasNotes = cache?.sections?.some(s => s.type === 'paragraph' || s.type === 'list' || s.type === 'heading');
+
+		// Priority badge
+		const priorityBadge = document.createElement('span');
+		priorityBadge.className = 'task-priority-badge';
+		priorityBadge.dataset.priority = priority;
+		priorityBadge.dataset.taskPath = this.actionPath + '.md';
+		priorityBadge.title = `Priority: ${priority} (click to cycle)`;
+		priorityBadge.textContent = this.plugin.getPriorityIcon(priority);
+		container.appendChild(priorityBadge);
+
+		// Status dot
+		const statusDot = document.createElement('span');
+		statusDot.className = 'task-status-dot';
+		statusDot.dataset.status = status;
+		statusDot.dataset.taskPath = this.actionPath + '.md';
+		statusDot.title = `Status: ${status} (click to cycle)`;
+		container.appendChild(statusDot);
+
+		// Space
+		container.appendChild(document.createTextNode(' '));
+
+		// Title as link
+		const titleLink = document.createElement('a');
+		titleLink.className = 'internal-link';
+		if (status === 'done' || status === 'dropped') {
+			titleLink.classList.add('is-completed');
+		}
+		titleLink.dataset.href = this.actionPath;
+		titleLink.href = this.actionPath;
+		titleLink.textContent = title;
+		container.appendChild(titleLink);
+
+		// Note icon
+		if (hasNotes && this.plugin.settings.showNoteIcon) {
+			const noteIcon = document.createElement('span');
+			noteIcon.className = 'minimal-task-note-icon';
+			noteIcon.textContent = ' ›';
+			container.appendChild(noteIcon);
+		}
+
+		// Edit icon
+		const editIcon = document.createElement('span');
+		editIcon.className = 'minimal-task-edit-icon';
+		editIcon.dataset.taskPath = this.actionPath + '.md';
+		editIcon.title = 'Edit task';
+		editIcon.textContent = ' ⊙';
+		container.appendChild(editIcon);
+
+		// Pills inline
+		if (fm.scheduled) {
+			const badge = document.createElement('span');
+			badge.className = 'minimal-badge minimal-badge-date';
+			badge.textContent = `🗓️ ${fm.scheduled}`;
+			container.appendChild(document.createTextNode(' '));
+			container.appendChild(badge);
+		}
+
+		if (fm.due) {
+			const badge = document.createElement('span');
+			badge.className = 'minimal-badge minimal-badge-date';
+			const isOverdue = new Date(fm.due) < new Date(new Date().toDateString());
+			if (isOverdue) badge.classList.add('is-overdue');
+			badge.textContent = `📅 ${fm.due}`;
+			container.appendChild(document.createTextNode(' '));
+			container.appendChild(badge);
+		}
+
+		if (fm.rrule) {
+			const badge = document.createElement('span');
+			badge.className = 'minimal-badge';
+			badge.textContent = `🔁 ${this.plugin.formatRRuleReadable(fm.rrule)}`;
+			container.appendChild(document.createTextNode(' '));
+			container.appendChild(badge);
+		}
+
+		const contexts = fm.contexts || [];
+		contexts.forEach((ctx: string) => {
+			const badge = document.createElement('span');
+			badge.className = 'minimal-badge minimal-badge-context';
+			badge.textContent = `@${ctx}`;
+			container.appendChild(document.createTextNode(' '));
+			container.appendChild(badge);
+		});
+
+		return container;
+	}
+
+	eq(other: ActionLinkWidget): boolean {
+		return this.actionPath === other.actionPath;
+	}
+}
+
+// ViewPlugin factory for action link rendering
+function createActionLinkPlugin(plugin: MinimalTasksPlugin) {
+	return ViewPlugin.fromClass(
+		class {
+			decorations: DecorationSet;
+
+			constructor(view: EditorView) {
+				this.decorations = this.buildDecorations(view);
+			}
+
+			update(update: ViewUpdate) {
+				if (update.docChanged || update.viewportChanged) {
+					this.decorations = this.buildDecorations(update.view);
+				}
+			}
+
+			buildDecorations(view: EditorView): DecorationSet {
+				const decorations: Range<Decoration>[] = [];
+				// Match action links: - [ ] [[gtd/actions/...|...]] or - [x] [[...|...]]
+				// Also match short form: - [ ] [[20251203-...|...]]
+				const actionLinkRegex = /^(\s*)- \[[ x]\] \[\[(gtd\/actions\/)?(\d{8}-\d{6})\|([^\]]+)\]\]\s*$/;
+
+				for (const { from, to } of view.visibleRanges) {
+					for (let pos = from; pos <= to;) {
+						const line = view.state.doc.lineAt(pos);
+						const match = line.text.match(actionLinkRegex);
+						if (match) {
+							const indent = match[1];
+							const actionPath = `gtd/actions/${match[3]}`;
+							const displayTitle = match[4];
+
+							const widget = Decoration.replace({
+								widget: new ActionLinkWidget(plugin, actionPath, displayTitle)
+							});
+							// Replace from after indent to end of line
+							const replaceFrom = line.from + indent.length;
+							decorations.push(widget.range(replaceFrom, line.to));
+						}
+						pos = line.to + 1;
+					}
+				}
+				return Decoration.set(decorations, true);
+			}
+		},
+		{ decorations: v => v.decorations }
+	);
+}
+
 // ViewPlugin factory for task line decoration
 function createConvertTaskPlugin(plugin: MinimalTasksPlugin) {
 	return ViewPlugin.fromClass(
@@ -187,12 +353,15 @@ function createConvertTaskPlugin(plugin: MinimalTasksPlugin) {
 				const widgets: Range<Decoration>[] = [];
 				// Match uncompleted markdown tasks: - [ ] task text
 				const taskRegex = /^(\s*)- \[ \] (.+)$/;
+				// Pattern to detect action links (already converted tasks)
+				const actionLinkPattern = /\[\[(gtd\/actions\/)?\d{8}-\d{6}\|/;
 
 				for (const { from, to } of view.visibleRanges) {
 					for (let pos = from; pos <= to;) {
 						const line = view.state.doc.lineAt(pos);
 						const match = line.text.match(taskRegex);
-						if (match && match[2]) {
+						// Only add convert icon if it's a plain task (not an action link)
+						if (match && match[2] && !actionLinkPattern.test(line.text)) {
 							const widget = Decoration.widget({
 								widget: new ConvertTaskWidget(plugin, match[2], line.from, line.to),
 								side: 1
@@ -1381,6 +1550,14 @@ export default class MinimalTasksPlugin extends Plugin {
 			this.registerEditorExtension(createConvertTaskPlugin(this));
 		}
 
+		// Register CodeMirror extension for rendering action links as task rows
+		this.registerEditorExtension(createActionLinkPlugin(this));
+
+		// Register MarkdownPostProcessor for reading view
+		this.registerMarkdownPostProcessor((element, context) => {
+			this.processActionLinks(element, context);
+		});
+
 		// Add ribbon icon for creating new actions
 		this.addRibbonIcon('plus-circle', 'New Action', async () => {
 			await this.createNewAction();
@@ -2119,6 +2296,18 @@ export default class MinimalTasksPlugin extends Plugin {
 			}
 			return;
 		}
+
+		// Check if clicked on convert icon (reading view)
+		if (target.classList.contains('minimal-tasks-convert-icon')) {
+			event.preventDefault();
+			event.stopPropagation();
+			const taskText = target.dataset.taskText;
+			const sourcePath = target.dataset.sourcePath;
+			if (taskText && sourcePath) {
+				await this.convertToActionFromReading(taskText, sourcePath);
+			}
+			return;
+		}
 	}
 
 	/**
@@ -2696,6 +2885,190 @@ export default class MinimalTasksPlugin extends Plugin {
 	// ========================================
 
 	/**
+	 * Process action links in reading view (MarkdownPostProcessor)
+	 * Replaces [[timestamp|title]] links inside task list items with rich task display
+	 * Also adds convert buttons to plain markdown tasks
+	 */
+	processActionLinks(element: HTMLElement, context: MarkdownPostProcessorContext): void {
+		// Find all task list items
+		const taskItems = element.querySelectorAll('li.task-list-item');
+
+		for (const li of Array.from(taskItems)) {
+			// Find action links inside
+			const links = li.querySelectorAll('a.internal-link');
+			let hasActionLink = false;
+
+			for (const link of Array.from(links)) {
+				const href = link.getAttribute('data-href') || '';
+				// Match action links: gtd/actions/YYYYMMDD-HHMMSS or just YYYYMMDD-HHMMSS
+				const match = href.match(/^(gtd\/actions\/)?(\d{8}-\d{6})$/);
+				if (!match) continue;
+
+				hasActionLink = true;
+				const actionPath = `gtd/actions/${match[2]}.md`;
+				const displayTitle = link.textContent || match[2];
+
+				// Get action metadata from cache
+				const actionFile = this.app.vault.getAbstractFileByPath(actionPath);
+				if (!(actionFile instanceof TFile)) continue;
+
+				const cache = this.app.metadataCache.getFileCache(actionFile);
+				const fm = cache?.frontmatter || {};
+
+				const status = fm.status || 'none';
+				const priority = fm.priority || 'anytime';
+				const title = fm.title || displayTitle;
+				const contexts = fm.contexts || [];
+				const scheduled = fm.scheduled;
+				const due = fm.due;
+				const rrule = fm.rrule;
+
+				// Check if action has content (notes) - exclude code blocks like dataviewjs
+				const hasContent = cache?.sections?.some(s => s.type === 'paragraph' || s.type === 'list' || s.type === 'heading');
+
+				// Create container for rich task display
+				const container = document.createElement('span');
+				container.className = 'minimal-task-inline';
+
+				// Priority badge
+				const priorityBadge = document.createElement('span');
+				priorityBadge.className = 'task-priority-badge';
+				priorityBadge.setAttribute('data-priority', priority);
+				priorityBadge.setAttribute('data-task-path', actionPath);
+				priorityBadge.textContent = priority === 'today' ? '⭐' : priority === 'someday' ? '💭' : '•';
+				container.appendChild(priorityBadge);
+
+				// Status dot
+				const statusDot = document.createElement('span');
+				statusDot.className = 'task-status-dot';
+				statusDot.setAttribute('data-status', status);
+				statusDot.setAttribute('data-task-path', actionPath);
+				container.appendChild(statusDot);
+
+				// Title link
+				const titleLink = document.createElement('a');
+				titleLink.className = 'internal-link minimal-task-title';
+				titleLink.setAttribute('data-href', actionPath.replace('.md', ''));
+				titleLink.setAttribute('href', actionPath.replace('.md', ''));
+				if (status === 'done' || status === 'dropped') {
+					titleLink.classList.add('is-completed');
+				}
+				titleLink.textContent = title;
+				container.appendChild(titleLink);
+
+				// Note icon
+				if (hasContent) {
+					const noteIcon = document.createElement('span');
+					noteIcon.className = 'minimal-task-note-icon';
+					noteIcon.textContent = '☰';
+					container.appendChild(noteIcon);
+				}
+
+				// Edit icon
+				const editIcon = document.createElement('span');
+				editIcon.className = 'minimal-task-edit-icon';
+				editIcon.setAttribute('data-task-path', actionPath);
+				editIcon.textContent = '⊙';
+				container.appendChild(editIcon);
+
+				// Metadata pills
+				const metadata = document.createElement('span');
+				metadata.className = 'minimal-task-metadata';
+
+				// Scheduled pill
+				if (scheduled) {
+					const pill = document.createElement('span');
+					pill.className = 'minimal-badge minimal-badge-date';
+					pill.textContent = `📅 ${scheduled}`;
+					metadata.appendChild(pill);
+				}
+
+				// Due pill
+				if (due) {
+					const pill = document.createElement('span');
+					pill.className = 'minimal-badge minimal-badge-date';
+					const today = new Date().toISOString().split('T')[0];
+					if (due < today) {
+						pill.classList.add('is-overdue');
+					}
+					pill.textContent = `⚠️ ${due}`;
+					metadata.appendChild(pill);
+				}
+
+				// Recurrence pill
+				if (rrule) {
+					const recurrenceText = this.getRecurrenceDisplayText(rrule);
+					const pill = document.createElement('span');
+					pill.className = 'minimal-badge';
+					pill.textContent = `🔁 ${recurrenceText}`;
+					metadata.appendChild(pill);
+				}
+
+				// Context pills
+				for (const ctx of contexts) {
+					const pill = document.createElement('span');
+					pill.className = 'minimal-badge minimal-badge-context';
+					pill.textContent = `@${ctx}`;
+					metadata.appendChild(pill);
+				}
+
+				if (metadata.children.length > 0) {
+					container.appendChild(metadata);
+				}
+
+				// Replace the original link with our rich display
+				link.replaceWith(container);
+
+				// Hide the original checkbox (we have status dot)
+				const checkbox = li.querySelector('input[type="checkbox"]');
+				if (checkbox) {
+					(checkbox as HTMLElement).style.display = 'none';
+				}
+			}
+
+			// If no action link found, add convert button for plain tasks
+			if (!hasActionLink) {
+				// Get the text content of the task (excluding checkbox)
+				const checkbox = li.querySelector('input[type="checkbox"]');
+				if (!checkbox) continue;
+
+				// Get task text - everything after the checkbox
+				const taskText = this.getTaskTextFromListItem(li);
+				if (!taskText || taskText.trim() === '') continue;
+
+				// Add convert button
+				const convertIcon = document.createElement('span');
+				convertIcon.className = 'minimal-tasks-convert-icon';
+				convertIcon.textContent = '➕';
+				convertIcon.setAttribute('data-task-text', taskText);
+				convertIcon.setAttribute('data-source-path', context.sourcePath);
+
+				// Append at end of list item
+				li.appendChild(convertIcon);
+			}
+		}
+	}
+
+	/**
+	 * Extract task text from a list item element
+	 */
+	private getTaskTextFromListItem(li: Element): string {
+		// Clone the element to avoid modifying the original
+		const clone = li.cloneNode(true) as HTMLElement;
+
+		// Remove the checkbox
+		const checkbox = clone.querySelector('input[type="checkbox"]');
+		if (checkbox) checkbox.remove();
+
+		// Remove any existing convert icons
+		const convertIcon = clone.querySelector('.minimal-tasks-convert-icon');
+		if (convertIcon) convertIcon.remove();
+
+		// Get text content
+		return clone.textContent?.trim() || '';
+	}
+
+	/**
 	 * Convert an inline markdown task to an action file
 	 * @param taskText - The task text (without the "- [ ] " prefix)
 	 * @param lineFrom - Start position of the line
@@ -2726,6 +3099,70 @@ export default class MinimalTasksPlugin extends Plugin {
 			});
 
 			new Notice(`Created action: ${taskText}`);
+
+		} catch (error) {
+			console.error('Error converting task:', error);
+			new Notice('Error converting task: ' + (error as Error).message);
+		}
+	}
+
+	/**
+	 * Convert an inline markdown task to an action file (from reading view)
+	 * @param taskText - The task text (without the "- [ ] " prefix)
+	 * @param sourcePath - The path of the file containing the task
+	 */
+	async convertToActionFromReading(taskText: string, sourcePath: string): Promise<void> {
+		try {
+			const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
+			if (!(sourceFile instanceof TFile)) {
+				new Notice('Source file not found');
+				return;
+			}
+
+			// 1. Detect context from source note
+			const content = await this.app.vault.read(sourceFile);
+			const { frontmatter } = this.parseFrontmatter(content);
+
+			let context: { projects?: string[], area?: string } = {};
+
+			// Check if source is a project note
+			if (sourcePath.startsWith('gtd/projects/') && !sourcePath.includes('archive')) {
+				const basename = sourcePath.split('/').pop()?.replace('.md', '') || '';
+				context = { projects: [`[[${basename}]]`] };
+			}
+			// Check if source is an event with a project
+			else if (frontmatter.type === 'event' && frontmatter.project) {
+				context = { projects: [frontmatter.project] };
+			}
+			// Check for area field
+			else if (frontmatter.area) {
+				context = { area: frontmatter.area };
+			}
+
+			// 2. Generate filename
+			const timestamp = this.generateTimestamp();
+			const filename = `${timestamp}.md`;
+			const path = `gtd/actions/${filename}`;
+
+			// 3. Build frontmatter
+			const actionFrontmatter = this.buildConvertFrontmatter(taskText, context);
+
+			// 4. Create action file
+			const actionContent = this.buildActionContent(actionFrontmatter);
+			await this.app.vault.create(path, actionContent);
+
+			// 5. Replace task in source file
+			// Match both checked and unchecked tasks
+			const escapedTaskText = taskText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+			const taskPattern = new RegExp(`^(\\s*)- \\[[ x]\\] ${escapedTaskText}$`, 'm');
+			const newContent = content.replace(taskPattern, `$1- [ ] [[${timestamp}|${taskText}]]`);
+
+			if (newContent !== content) {
+				await this.app.vault.modify(sourceFile, newContent);
+				new Notice(`Created action: ${taskText}`);
+			} else {
+				new Notice('Could not find task in source file');
+			}
 
 		} catch (error) {
 			console.error('Error converting task:', error);

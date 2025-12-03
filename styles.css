@@ -77,6 +77,28 @@
     padding: 0;
 }
 
+/* Editor-specific styling for action link widgets */
+.minimal-task-row-editor {
+    display: block;
+    width: 100%;
+    margin: 0;
+}
+
+/* Inline task display (for action links in edit/reading view) */
+.minimal-task-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    vertical-align: baseline;
+}
+
+.minimal-task-inline .minimal-task-metadata {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25em;
+    margin-left: 0.25em;
+}
+
 /* Main task line - flexbox for alignment */
 .minimal-task-main {
     display: flex;
