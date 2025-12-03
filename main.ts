@@ -268,6 +268,11 @@ class EditTaskModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 
+		// Forward declarations for elements referenced across sections
+		let discussSection: HTMLElement;
+		let storeSection: HTMLElement;
+		let scheduledInput: HTMLInputElement;
+
 		// Title input (large, at top)
 		const titleContainer = contentEl.createDiv({ cls: 'edit-task-title-container' });
 		const titleInput = titleContainer.createEl('input', {
@@ -282,65 +287,286 @@ class EditTaskModal extends Modal {
 			this.frontmatter.title = titleInput.value;
 		});
 
-		// Status & Priority section (icon toggles)
-		const statusPrioritySection = contentEl.createDiv({ cls: 'edit-task-section' });
-		const statusPriorityRow = statusPrioritySection.createDiv({ cls: 'edit-task-row-inline' });
+		// Focus title input so user can start typing immediately
+		setTimeout(() => titleInput.focus(), 0);
 
-		// Status icons
-		const statusGroup = statusPriorityRow.createDiv({ cls: 'edit-task-inline-group' });
-		statusGroup.createSpan({ cls: 'edit-task-label', text: 'Status' });
-		const statusIcons = statusGroup.createDiv({ cls: 'edit-task-icon-group' });
+		// Contexts section (pill toggles)
+		const contextsSection = contentEl.createDiv({ cls: 'edit-task-section' });
+		contextsSection.createDiv({ cls: 'edit-task-section-label', text: 'Contexts' });
+		const contextsContainer = contextsSection.createDiv({ cls: 'edit-task-contexts' });
 
-		const statusOptions = [
-			{ value: 'none', icon: '⚪' },
-			{ value: 'open', icon: '🔵' },
-			{ value: 'in-progress', icon: '🟡' },
-			{ value: 'done', icon: '✅' },
-			{ value: 'dropped', icon: '🔴' }
-		];
+		const allContexts = ['focus', 'quick', 'relax', 'home', 'office', 'brf', 'school', 'errands', 'agenda', 'waiting'];
+		const currentContexts = this.getArrayField('contexts');
 
-		const currentStatus = this.frontmatter.status || 'none';
-		statusOptions.forEach(opt => {
-			const icon = statusIcons.createSpan({
-				cls: 'edit-task-icon' + (currentStatus === opt.value ? ' active' : ''),
-				text: opt.icon,
-				attr: { title: opt.value }
+		const updateConditionalSections = () => {
+			const activeContexts = this.getActiveContexts(contextsContainer);
+			if (discussSection) {
+				// Show if @agenda context OR if discuss-with/discuss-during has a value
+				const hasDiscussValue = this.frontmatter['discuss-with']?.length > 0 ||
+				                        this.frontmatter['discuss-during']?.length > 0;
+				discussSection.style.display = (activeContexts.includes('agenda') || hasDiscussValue) ? '' : 'none';
+			}
+			if (storeSection) {
+				// Show if @errands context OR if store has a value
+				const hasStoreValue = this.frontmatter.store &&
+				                      String(this.frontmatter.store).replace(/^["']|["']$/g, '').trim() !== '';
+				storeSection.style.display = (activeContexts.includes('errands') || hasStoreValue) ? '' : 'none';
+			}
+		};
+
+		allContexts.forEach(ctx => {
+			const pill = contextsContainer.createSpan({
+				cls: 'context-pill' + (currentContexts.includes(ctx) ? ' active' : ''),
+				text: '@' + ctx
 			});
-			icon.addEventListener('click', () => {
-				statusIcons.querySelectorAll('.edit-task-icon').forEach(i => i.removeClass('active'));
-				icon.addClass('active');
-				this.frontmatter.status = opt.value;
+			pill.addEventListener('click', () => {
+				pill.toggleClass('active', !pill.hasClass('active'));
+				this.updateContexts(contextsContainer);
+				updateConditionalSections();
+			});
+		});
+
+		// Project & Area section (same row)
+		const projectAreaSection = contentEl.createDiv({ cls: 'edit-task-section' });
+		const projectAreaRow = projectAreaSection.createDiv({ cls: 'edit-task-row-inline' });
+
+		// Project dropdown
+		const projectGroup = projectAreaRow.createDiv({ cls: 'edit-task-inline-group' });
+		projectGroup.createSpan({ cls: 'edit-task-label', text: '📂 Project' });
+		const projectSelect = projectGroup.createEl('select', { cls: 'edit-task-select-project' });
+		projectSelect.createEl('option', { value: '', text: '(none)' });
+
+		// Area emoji mapping and order
+		const areaEmoji: Record<string, string> = {
+			"Personal": "👨‍💻",
+			"Family": "🧑‍🎨",
+			"Social": "🕺",
+			"Home": "🏠",
+			"Opper": "🏢",
+			"Solvändan": "☀️",
+			"Garage": "🚗"
+		};
+		const areaOrder = ["Personal", "Family", "Social", "Home", "Opper", "Solvändan", "Garage", ""];
+
+		// Get projects from vault with area info
+		const projectFiles = this.app.vault.getMarkdownFiles()
+			.filter(f => f.path.startsWith('gtd/projects/') && !f.path.includes('archive'))
+			.map(f => {
+				const cache = this.app.metadataCache.getFileCache(f);
+				let areaField = cache?.frontmatter?.area;
+				let area = "";
+
+				if (areaField && typeof areaField === 'string') {
+					areaField = areaField.replace(/^["']|["']$/g, '');
+					if (areaField.includes('|')) {
+						const parts = areaField.split('|');
+						if (parts.length >= 2) {
+							area = parts[1].replace(/\]\]$/, '').trim();
+						}
+					}
+				}
+
+				return { file: f, area };
+			})
+			.sort((a, b) => a.file.basename.localeCompare(b.file.basename));
+
+		// Group projects by area
+		const projectsByArea = new Map<string, typeof projectFiles>();
+		projectFiles.forEach(pf => {
+			const area = pf.area || "";
+			if (!projectsByArea.has(area)) {
+				projectsByArea.set(area, []);
+			}
+			projectsByArea.get(area)!.push(pf);
+		});
+
+		// Add projects grouped by area
+		const currentProject = this.getProjectBasename();
+		areaOrder.forEach(area => {
+			const areaProjects = projectsByArea.get(area);
+			if (!areaProjects || areaProjects.length === 0) return;
+
+			const emoji = areaEmoji[area] || "📦";
+			const groupLabel = area ? `${emoji} ${area}` : "📦 No Area";
+			const optgroup = projectSelect.createEl('optgroup', { attr: { label: groupLabel } });
+
+			areaProjects.forEach(pf => {
+				const opt = optgroup.createEl('option', {
+					value: pf.file.path,
+					text: pf.file.basename
+				});
+				if (pf.file.basename === currentProject) opt.selected = true;
 			});
 		});
 
-		// Priority icons
-		const priorityGroup = statusPriorityRow.createDiv({ cls: 'edit-task-inline-group' });
-		priorityGroup.createSpan({ cls: 'edit-task-label', text: 'Priority' });
-		const priorityIcons = priorityGroup.createDiv({ cls: 'edit-task-icon-group' });
+		// Area dropdown
+		const areaGroup = projectAreaRow.createDiv({ cls: 'edit-task-inline-group' });
+		areaGroup.createSpan({ cls: 'edit-task-label', text: '🗂️ Area' });
+		const areaSelect = areaGroup.createEl('select', { cls: 'edit-task-select-small' });
 
-		const priorityOptions = [
-			{ value: 'anytime', icon: '•' },
-			{ value: 'today', icon: '⭐' },
-			{ value: 'someday', icon: '💭' }
-		];
-
-		const currentPriority = this.frontmatter.priority || 'anytime';
-		priorityOptions.forEach(opt => {
-			const icon = priorityIcons.createSpan({
-				cls: 'edit-task-icon' + (currentPriority === opt.value ? ' active' : ''),
-				text: opt.icon,
-				attr: { title: opt.value }
-			});
-			icon.addEventListener('click', () => {
-				priorityIcons.querySelectorAll('.edit-task-icon').forEach(i => i.removeClass('active'));
-				icon.addClass('active');
-				this.frontmatter.priority = opt.value;
-			});
+		const areas = ['', 'Personal', 'Family', 'Social', 'Home', 'Opper', 'Solvändan', 'Garage'];
+		const currentArea = this.getAreaName();
+		areas.forEach(a => {
+			const emoji = a ? areaEmoji[a] || '📦' : '';
+			const text = a ? `${emoji} ${a}` : '(none)';
+			const opt = areaSelect.createEl('option', { value: a, text });
+			if (a === currentArea) opt.selected = true;
 		});
+		areaSelect.addEventListener('change', () => {
+			if (areaSelect.value) {
+				this.frontmatter.area = `"[[gtd/areas/${areaSelect.value}|${areaSelect.value}]]"`;
+			} else {
+				this.frontmatter.area = '""';
+			}
+		});
+
+		projectSelect.addEventListener('change', () => {
+			if (projectSelect.value) {
+				const selectedProject = projectFiles.find(pf => pf.file.path === projectSelect.value);
+				if (selectedProject) {
+					this.frontmatter.projects = [`"[[${selectedProject.file.path}|${selectedProject.file.basename}]]"`];
+					// Clear area when project is selected (projects have their own area)
+					areaSelect.value = '';
+					this.frontmatter.area = '""';
+				}
+			} else {
+				this.frontmatter.projects = [];
+			}
+		});
+
+		// Discuss section (same row for with & during) - only shown when @agenda context or has value
+		discussSection = contentEl.createDiv({ cls: 'edit-task-section' });
+		const discussRow = discussSection.createDiv({ cls: 'edit-task-row-inline' });
+
+		// Discuss-with dropdown
+		const discussWithGroup = discussRow.createDiv({ cls: 'edit-task-inline-group' });
+		discussWithGroup.createSpan({ cls: 'edit-task-label', text: '👤 With' });
+		const discussWithSelect = discussWithGroup.createEl('select', { cls: 'edit-task-select-small' });
+		discussWithSelect.createEl('option', { value: '', text: '(none)' });
+
+		const personFiles = this.app.vault.getMarkdownFiles()
+			.filter(f => f.path.startsWith('notes/person/'))
+			.sort((a, b) => a.basename.localeCompare(b.basename));
+
+		const currentDiscussWith = this.getDiscussWithBasename();
+		personFiles.forEach(pf => {
+			const opt = discussWithSelect.createEl('option', {
+				value: pf.path,
+				text: pf.basename
+			});
+			if (pf.basename === currentDiscussWith) opt.selected = true;
+		});
+		discussWithSelect.addEventListener('change', () => {
+			if (discussWithSelect.value) {
+				const selectedFile = personFiles.find(f => f.path === discussWithSelect.value);
+				if (selectedFile) {
+					this.frontmatter['discuss-with'] = [`"[[${selectedFile.path}|${selectedFile.basename}]]"`];
+				}
+			} else {
+				delete this.frontmatter['discuss-with'];
+			}
+		});
+
+		// Discuss-during dropdown
+		const discussDuringGroup = discussRow.createDiv({ cls: 'edit-task-inline-group' });
+		discussDuringGroup.createSpan({ cls: 'edit-task-label', text: '📅 During' });
+		const discussDuringSelect = discussDuringGroup.createEl('select', { cls: 'edit-task-select-small' });
+		discussDuringSelect.createEl('option', { value: '', text: '(none)' });
+
+		// Get events from vault (recent events first)
+		const eventFiles = this.app.vault.getMarkdownFiles()
+			.filter(f => f.path.startsWith('events/'))
+			.sort((a, b) => b.basename.localeCompare(a.basename)) // Most recent first
+			.slice(0, 50); // Limit to 50 most recent
+
+		const currentDiscussDuring = this.getDiscussDuringBasename();
+		eventFiles.forEach(ef => {
+			// Strip date/time prefix for display: "2025-11-16 1400 Meeting Name" -> "Meeting Name"
+			const displayName = ef.basename.replace(/^\d{4}-\d{2}-\d{2} \d{4} /, '');
+			const opt = discussDuringSelect.createEl('option', {
+				value: ef.path,
+				text: displayName
+			});
+			if (ef.basename === currentDiscussDuring || displayName === currentDiscussDuring) opt.selected = true;
+		});
+		discussDuringSelect.addEventListener('change', () => {
+			if (discussDuringSelect.value) {
+				const selectedFile = eventFiles.find(f => f.path === discussDuringSelect.value);
+				if (selectedFile) {
+					const displayName = selectedFile.basename.replace(/^\d{4}-\d{2}-\d{2} \d{4} /, '');
+					this.frontmatter['discuss-during'] = [`"[[${selectedFile.path}|${displayName}]]"`];
+				}
+			} else {
+				delete this.frontmatter['discuss-during'];
+			}
+		});
+
+		// Store section (input with datalist for suggestions) - only shown when @errands context or has value
+		storeSection = contentEl.createDiv({ cls: 'edit-task-section' });
+		const storeRow = storeSection.createDiv({ cls: 'edit-task-row-inline' });
+		const storeGroup = storeRow.createDiv({ cls: 'edit-task-inline-group' });
+		storeGroup.createSpan({ cls: 'edit-task-label', text: '🏪 Store' });
+
+		const storeInput = storeGroup.createEl('input', {
+			cls: 'edit-task-input-small',
+			attr: {
+				type: 'text',
+				placeholder: 'Type or select...',
+				list: 'store-suggestions',
+				value: String(this.frontmatter.store || '').replace(/^["']|["']$/g, '')
+			}
+		});
+
+		// Create datalist with existing stores
+		const storeDatalist = storeRow.createEl('datalist', { attr: { id: 'store-suggestions' } });
+
+		// Get unique stores from existing tasks
+		const existingStores = new Set<string>();
+		this.app.vault.getMarkdownFiles()
+			.filter(f => f.path.startsWith('gtd/actions/'))
+			.forEach(f => {
+				const cache = this.app.metadataCache.getFileCache(f);
+				const store = cache?.frontmatter?.store;
+				if (store) {
+					const storeStr = String(store).replace(/^["']|["']$/g, '');
+					if (storeStr) existingStores.add(storeStr);
+				}
+			});
+
+		// Sort stores alphabetically and add as options
+		Array.from(existingStores).sort().forEach(store => {
+			storeDatalist.createEl('option', { value: store });
+		});
+
+		storeInput.addEventListener('change', () => {
+			if (storeInput.value) {
+				this.frontmatter.store = storeInput.value;
+			} else {
+				delete this.frontmatter.store;
+			}
+		});
+
+		// Set initial visibility of conditional sections
+		updateConditionalSections();
 
 		// Dates section (same row)
 		const datesSection = contentEl.createDiv({ cls: 'edit-task-section' });
 		const datesRow = datesSection.createDiv({ cls: 'edit-task-row-inline' });
+
+		// Scheduled date
+		const scheduledGroup = datesRow.createDiv({ cls: 'edit-task-inline-group' });
+		scheduledGroup.createSpan({ cls: 'edit-task-label', text: '🗓️ Scheduled' });
+		scheduledInput = scheduledGroup.createEl('input', {
+			cls: 'edit-task-date-input-small',
+			attr: {
+				type: 'date',
+				value: this.formatDateForInput(this.frontmatter.scheduled)
+			}
+		});
+		scheduledInput.addEventListener('change', () => {
+			this.frontmatter.scheduled = scheduledInput.value || undefined;
+			if (!scheduledInput.value) delete this.frontmatter.scheduled;
+		});
 
 		// Due date
 		const dueGroup = datesRow.createDiv({ cls: 'edit-task-inline-group' });
@@ -355,21 +581,6 @@ class EditTaskModal extends Modal {
 		dueInput.addEventListener('change', () => {
 			this.frontmatter.due = dueInput.value || undefined;
 			if (!dueInput.value) delete this.frontmatter.due;
-		});
-
-		// Scheduled date
-		const scheduledGroup = datesRow.createDiv({ cls: 'edit-task-inline-group' });
-		scheduledGroup.createSpan({ cls: 'edit-task-label', text: '🗓️ Scheduled' });
-		const scheduledInput = scheduledGroup.createEl('input', {
-			cls: 'edit-task-date-input-small',
-			attr: {
-				type: 'date',
-				value: this.formatDateForInput(this.frontmatter.scheduled)
-			}
-		});
-		scheduledInput.addEventListener('change', () => {
-			this.frontmatter.scheduled = scheduledInput.value || undefined;
-			if (!scheduledInput.value) delete this.frontmatter.scheduled;
 		});
 
 		// Recurrence section
@@ -547,267 +758,61 @@ class EditTaskModal extends Modal {
 		yearDaySelect.addEventListener('change', updateRecurrence);
 		recurrenceStartInput.addEventListener('change', updateRecurrence);
 
-		// Contexts section (pill toggles)
-		const contextsSection = contentEl.createDiv({ cls: 'edit-task-section' });
-		contextsSection.createDiv({ cls: 'edit-task-section-label', text: 'Contexts' });
-		const contextsContainer = contextsSection.createDiv({ cls: 'edit-task-contexts' });
+		// Status & Priority section (icon toggles)
+		const statusPrioritySection = contentEl.createDiv({ cls: 'edit-task-section' });
+		const statusPriorityRow = statusPrioritySection.createDiv({ cls: 'edit-task-row-inline' });
 
-		const allContexts = ['focus', 'quick', 'relax', 'home', 'office', 'brf', 'school', 'errands', 'agenda', 'waiting'];
-		const currentContexts = this.getArrayField('contexts');
+		// Status icons
+		const statusGroup = statusPriorityRow.createDiv({ cls: 'edit-task-inline-group' });
+		statusGroup.createSpan({ cls: 'edit-task-label', text: 'Status' });
+		const statusIcons = statusGroup.createDiv({ cls: 'edit-task-icon-group' });
 
-		// References for conditional sections (will be set later)
-		let discussSection: HTMLElement;
-		let storeSection: HTMLElement;
+		const statusOptions = [
+			{ value: 'none', icon: '⚪' },
+			{ value: 'open', icon: '🔵' },
+			{ value: 'in-progress', icon: '🟡' },
+			{ value: 'done', icon: '✅' },
+			{ value: 'dropped', icon: '🔴' }
+		];
 
-		const updateConditionalSections = () => {
-			const activeContexts = this.getActiveContexts(contextsContainer);
-			if (discussSection) {
-				// Show if @agenda context OR if discuss-with/discuss-during has a value
-				const hasDiscussValue = this.frontmatter['discuss-with']?.length > 0 ||
-				                        this.frontmatter['discuss-during']?.length > 0;
-				discussSection.style.display = (activeContexts.includes('agenda') || hasDiscussValue) ? '' : 'none';
-			}
-			if (storeSection) {
-				// Show if @errands context OR if store has a value
-				const hasStoreValue = this.frontmatter.store &&
-				                      String(this.frontmatter.store).replace(/^["']|["']$/g, '').trim() !== '';
-				storeSection.style.display = (activeContexts.includes('errands') || hasStoreValue) ? '' : 'none';
-			}
-		};
-
-		allContexts.forEach(ctx => {
-			const pill = contextsContainer.createSpan({
-				cls: 'context-pill' + (currentContexts.includes(ctx) ? ' active' : ''),
-				text: '@' + ctx
+		const currentStatus = this.frontmatter.status || 'none';
+		statusOptions.forEach(opt => {
+			const icon = statusIcons.createSpan({
+				cls: 'edit-task-icon' + (currentStatus === opt.value ? ' active' : ''),
+				text: opt.icon,
+				attr: { title: opt.value }
 			});
-			pill.addEventListener('click', () => {
-				pill.toggleClass('active', !pill.hasClass('active'));
-				this.updateContexts(contextsContainer);
-				updateConditionalSections();
+			icon.addEventListener('click', () => {
+				statusIcons.querySelectorAll('.edit-task-icon').forEach(i => i.removeClass('active'));
+				icon.addClass('active');
+				this.frontmatter.status = opt.value;
 			});
 		});
 
-		// Project & Area section (same row)
-		const projectAreaSection = contentEl.createDiv({ cls: 'edit-task-section' });
-		const projectAreaRow = projectAreaSection.createDiv({ cls: 'edit-task-row-inline' });
+		// Priority icons
+		const priorityGroup = statusPriorityRow.createDiv({ cls: 'edit-task-inline-group' });
+		priorityGroup.createSpan({ cls: 'edit-task-label', text: 'Priority' });
+		const priorityIcons = priorityGroup.createDiv({ cls: 'edit-task-icon-group' });
 
-		// Project dropdown
-		const projectGroup = projectAreaRow.createDiv({ cls: 'edit-task-inline-group' });
-		projectGroup.createSpan({ cls: 'edit-task-label', text: '📂 Project' });
-		const projectSelect = projectGroup.createEl('select', { cls: 'edit-task-select-project' });
-		projectSelect.createEl('option', { value: '', text: '(none)' });
+		const priorityOptions = [
+			{ value: 'anytime', icon: '•' },
+			{ value: 'today', icon: '⭐' },
+			{ value: 'someday', icon: '💭' }
+		];
 
-		// Area emoji mapping and order
-		const areaEmoji: Record<string, string> = {
-			"Personal": "👨‍💻",
-			"Family": "🧑‍🎨",
-			"Social": "🕺",
-			"Home": "🏠",
-			"Opper": "🏢",
-			"Solvändan": "☀️",
-			"Garage": "🚗"
-		};
-		const areaOrder = ["Personal", "Family", "Social", "Home", "Opper", "Solvändan", "Garage", ""];
-
-		// Get projects from vault with area info
-		const projectFiles = this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith('gtd/projects/') && !f.path.includes('archive'))
-			.map(f => {
-				const cache = this.app.metadataCache.getFileCache(f);
-				let areaField = cache?.frontmatter?.area;
-				let area = "";
-
-				if (areaField && typeof areaField === 'string') {
-					areaField = areaField.replace(/^["']|["']$/g, '');
-					if (areaField.includes('|')) {
-						const parts = areaField.split('|');
-						if (parts.length >= 2) {
-							area = parts[1].replace(/\]\]$/, '').trim();
-						}
-					}
-				}
-
-				return { file: f, area };
-			})
-			.sort((a, b) => a.file.basename.localeCompare(b.file.basename));
-
-		// Group projects by area
-		const projectsByArea = new Map<string, typeof projectFiles>();
-		projectFiles.forEach(pf => {
-			const area = pf.area || "";
-			if (!projectsByArea.has(area)) {
-				projectsByArea.set(area, []);
-			}
-			projectsByArea.get(area)!.push(pf);
-		});
-
-		// Add projects grouped by area
-		const currentProject = this.getProjectBasename();
-		areaOrder.forEach(area => {
-			const areaProjects = projectsByArea.get(area);
-			if (!areaProjects || areaProjects.length === 0) return;
-
-			const emoji = areaEmoji[area] || "📦";
-			const groupLabel = area ? `${emoji} ${area}` : "📦 No Area";
-			const optgroup = projectSelect.createEl('optgroup', { attr: { label: groupLabel } });
-
-			areaProjects.forEach(pf => {
-				const opt = optgroup.createEl('option', {
-					value: pf.file.path,
-					text: pf.file.basename
-				});
-				if (pf.file.basename === currentProject) opt.selected = true;
+		const currentPriority = this.frontmatter.priority || 'anytime';
+		priorityOptions.forEach(opt => {
+			const icon = priorityIcons.createSpan({
+				cls: 'edit-task-icon' + (currentPriority === opt.value ? ' active' : ''),
+				text: opt.icon,
+				attr: { title: opt.value }
+			});
+			icon.addEventListener('click', () => {
+				priorityIcons.querySelectorAll('.edit-task-icon').forEach(i => i.removeClass('active'));
+				icon.addClass('active');
+				this.frontmatter.priority = opt.value;
 			});
 		});
-		projectSelect.addEventListener('change', () => {
-			if (projectSelect.value) {
-				const selectedProject = projectFiles.find(pf => pf.file.path === projectSelect.value);
-				if (selectedProject) {
-					this.frontmatter.projects = [`"[[${selectedProject.file.path}|${selectedProject.file.basename}]]"`];
-					// Clear area when project is selected (projects have their own area)
-					areaSelect.value = '';
-					this.frontmatter.area = '""';
-				}
-			} else {
-				this.frontmatter.projects = [];
-			}
-		});
-
-		// Area dropdown
-		const areaGroup = projectAreaRow.createDiv({ cls: 'edit-task-inline-group' });
-		areaGroup.createSpan({ cls: 'edit-task-label', text: '🗂️ Area' });
-		const areaSelect = areaGroup.createEl('select', { cls: 'edit-task-select-small' });
-
-		const areas = ['', 'Personal', 'Family', 'Social', 'Home', 'Opper', 'Solvändan', 'Garage'];
-		const currentArea = this.getAreaName();
-		areas.forEach(a => {
-			const emoji = a ? areaEmoji[a] || '📦' : '';
-			const text = a ? `${emoji} ${a}` : '(none)';
-			const opt = areaSelect.createEl('option', { value: a, text });
-			if (a === currentArea) opt.selected = true;
-		});
-		areaSelect.addEventListener('change', () => {
-			if (areaSelect.value) {
-				this.frontmatter.area = `"[[gtd/areas/${areaSelect.value}|${areaSelect.value}]]"`;
-			} else {
-				this.frontmatter.area = '""';
-			}
-		});
-
-		// Discuss section (same row for with & during) - only shown when @agenda context
-		discussSection = contentEl.createDiv({ cls: 'edit-task-section' });
-		const discussRow = discussSection.createDiv({ cls: 'edit-task-row-inline' });
-
-		// Discuss-with dropdown
-		const discussWithGroup = discussRow.createDiv({ cls: 'edit-task-inline-group' });
-		discussWithGroup.createSpan({ cls: 'edit-task-label', text: '👤 With' });
-		const discussWithSelect = discussWithGroup.createEl('select', { cls: 'edit-task-select-small' });
-		discussWithSelect.createEl('option', { value: '', text: '(none)' });
-
-		const personFiles = this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith('notes/person/'))
-			.sort((a, b) => a.basename.localeCompare(b.basename));
-
-		const currentDiscussWith = this.getDiscussWithBasename();
-		personFiles.forEach(pf => {
-			const opt = discussWithSelect.createEl('option', {
-				value: pf.path,
-				text: pf.basename
-			});
-			if (pf.basename === currentDiscussWith) opt.selected = true;
-		});
-		discussWithSelect.addEventListener('change', () => {
-			if (discussWithSelect.value) {
-				const selectedFile = personFiles.find(f => f.path === discussWithSelect.value);
-				if (selectedFile) {
-					this.frontmatter['discuss-with'] = [`"[[${selectedFile.path}|${selectedFile.basename}]]"`];
-				}
-			} else {
-				delete this.frontmatter['discuss-with'];
-			}
-		});
-
-		// Discuss-during dropdown
-		const discussDuringGroup = discussRow.createDiv({ cls: 'edit-task-inline-group' });
-		discussDuringGroup.createSpan({ cls: 'edit-task-label', text: '📅 During' });
-		const discussDuringSelect = discussDuringGroup.createEl('select', { cls: 'edit-task-select-small' });
-		discussDuringSelect.createEl('option', { value: '', text: '(none)' });
-
-		// Get events from vault (recent events first)
-		const eventFiles = this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith('events/'))
-			.sort((a, b) => b.basename.localeCompare(a.basename)) // Most recent first
-			.slice(0, 50); // Limit to 50 most recent
-
-		const currentDiscussDuring = this.getDiscussDuringBasename();
-		eventFiles.forEach(ef => {
-			// Strip date/time prefix for display: "2025-11-16 1400 Meeting Name" -> "Meeting Name"
-			const displayName = ef.basename.replace(/^\d{4}-\d{2}-\d{2} \d{4} /, '');
-			const opt = discussDuringSelect.createEl('option', {
-				value: ef.path,
-				text: displayName
-			});
-			if (ef.basename === currentDiscussDuring || displayName === currentDiscussDuring) opt.selected = true;
-		});
-		discussDuringSelect.addEventListener('change', () => {
-			if (discussDuringSelect.value) {
-				const selectedFile = eventFiles.find(f => f.path === discussDuringSelect.value);
-				if (selectedFile) {
-					const displayName = selectedFile.basename.replace(/^\d{4}-\d{2}-\d{2} \d{4} /, '');
-					this.frontmatter['discuss-during'] = [`"[[${selectedFile.path}|${displayName}]]"`];
-				}
-			} else {
-				delete this.frontmatter['discuss-during'];
-			}
-		});
-
-		// Store section (input with datalist for suggestions) - only shown when @errands context
-		storeSection = contentEl.createDiv({ cls: 'edit-task-section' });
-		const storeRow = storeSection.createDiv({ cls: 'edit-task-row-inline' });
-		const storeGroup = storeRow.createDiv({ cls: 'edit-task-inline-group' });
-		storeGroup.createSpan({ cls: 'edit-task-label', text: '🏪 Store' });
-
-		const storeInput = storeGroup.createEl('input', {
-			cls: 'edit-task-input-small',
-			attr: {
-				type: 'text',
-				placeholder: 'Type or select...',
-				list: 'store-suggestions',
-				value: String(this.frontmatter.store || '').replace(/^["']|["']$/g, '')
-			}
-		});
-
-		// Create datalist with existing stores
-		const storeDatalist = storeRow.createEl('datalist', { attr: { id: 'store-suggestions' } });
-
-		// Get unique stores from existing tasks
-		const existingStores = new Set<string>();
-		this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith('gtd/actions/'))
-			.forEach(f => {
-				const cache = this.app.metadataCache.getFileCache(f);
-				const store = cache?.frontmatter?.store;
-				if (store) {
-					const storeStr = String(store).replace(/^["']|["']$/g, '');
-					if (storeStr) existingStores.add(storeStr);
-				}
-			});
-
-		// Sort stores alphabetically and add as options
-		Array.from(existingStores).sort().forEach(store => {
-			storeDatalist.createEl('option', { value: store });
-		});
-
-		storeInput.addEventListener('change', () => {
-			if (storeInput.value) {
-				this.frontmatter.store = storeInput.value;
-			} else {
-				delete this.frontmatter.store;
-			}
-		});
-
-		// Set initial visibility of conditional sections
-		updateConditionalSections();
 
 		// Button row
 		const buttonRow = contentEl.createDiv({ cls: 'edit-task-button-row' });
@@ -847,6 +852,13 @@ class EditTaskModal extends Modal {
 			text: 'Save Changes'
 		});
 		saveBtn.addEventListener('click', () => this.saveChanges());
+
+		// Keyboard shortcut: Cmd/Ctrl+Enter to save
+		this.scope.register(['Mod'], 'Enter', (evt: KeyboardEvent) => {
+			evt.preventDefault();
+			this.saveChanges();
+			return false;
+		});
 	}
 
 	async deleteTask(): Promise<void> {
