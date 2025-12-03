@@ -372,6 +372,181 @@ class EditTaskModal extends Modal {
 			if (!scheduledInput.value) delete this.frontmatter.scheduled;
 		});
 
+		// Recurrence section
+		const recurrenceSection = contentEl.createDiv({ cls: 'edit-task-section' });
+		const recurrenceRow = recurrenceSection.createDiv({ cls: 'edit-task-row-inline' });
+
+		const recurrenceGroup = recurrenceRow.createDiv({ cls: 'edit-task-inline-group' });
+		recurrenceGroup.createSpan({ cls: 'edit-task-label', text: '🔁 Repeat' });
+
+		// Frequency dropdown
+		const freqSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
+		const frequencies = [
+			{ label: '(none)', value: '' },
+			{ label: 'Daily', value: 'DAILY' },
+			{ label: 'Weekdays', value: 'WEEKDAYS' },
+			{ label: 'Weekly on', value: 'WEEKLY' },
+			{ label: 'Biweekly on', value: 'BIWEEKLY' },
+			{ label: 'Monthly on the', value: 'MONTHLY' },
+			{ label: 'Quarterly on the', value: 'QUARTERLY' },
+			{ label: 'Yearly on', value: 'YEARLY' }
+		];
+
+		// Day of week dropdown (for weekly/biweekly)
+		const dayOfWeekSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
+		const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+		const dayCodes = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+		dayNames.forEach((day, i) => {
+			dayOfWeekSelect.createEl('option', { value: dayCodes[i], text: day });
+		});
+		dayOfWeekSelect.style.display = 'none';
+
+		// Day of month dropdown (for monthly/quarterly)
+		const dayOfMonthSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
+		for (let i = 1; i <= 31; i++) {
+			const suffix = i === 1 || i === 21 || i === 31 ? 'st' : i === 2 || i === 22 ? 'nd' : i === 3 || i === 23 ? 'rd' : 'th';
+			dayOfMonthSelect.createEl('option', { value: String(i), text: `${i}${suffix}` });
+		}
+		dayOfMonthSelect.style.display = 'none';
+
+		// Start date for recurrence (when recurrence begins)
+		const startGroup = recurrenceRow.createDiv({ cls: 'edit-task-inline-group' });
+		startGroup.createSpan({ cls: 'edit-task-label', text: 'from' });
+		const recurrenceStartInput = startGroup.createEl('input', {
+			cls: 'edit-task-date-input-small',
+			attr: { type: 'date' }
+		});
+		startGroup.style.display = 'none';
+
+		// Month + day for yearly
+		const monthSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
+		const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+		monthNames.forEach((month, i) => {
+			monthSelect.createEl('option', { value: String(i + 1), text: month });
+		});
+		monthSelect.style.display = 'none';
+
+		const yearDaySelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
+		for (let i = 1; i <= 31; i++) {
+			yearDaySelect.createEl('option', { value: String(i), text: String(i) });
+		}
+		yearDaySelect.style.display = 'none';
+
+		// Parse current rrule
+		const currentRRule = String(this.frontmatter.rrule || '').replace(/^["']|["']$/g, '');
+		let currentFreq = '';
+		let currentDayCode = dayCodes[new Date().getDay()];
+		let currentMonthDay = new Date().getDate();
+		let currentMonth = new Date().getMonth() + 1;
+		let currentStartDate = this.frontmatter.recurrence_start
+			? String(this.frontmatter.recurrence_start).replace(/^["']|["']$/g, '')
+			: scheduledInput.value || new Date().toISOString().split('T')[0];
+
+		if (currentRRule) {
+			const parts = this.plugin.parseRRule(currentRRule);
+			// Extract DTSTART if present
+			if (parts.DTSTART) {
+				const ds = parts.DTSTART;
+				if (ds.length === 8) {
+					currentStartDate = `${ds.slice(0,4)}-${ds.slice(4,6)}-${ds.slice(6,8)}`;
+				}
+			}
+			if (parts.FREQ === 'DAILY' && parts.BYDAY === 'MO,TU,WE,TH,FR') {
+				currentFreq = 'WEEKDAYS';
+			} else if (parts.FREQ === 'DAILY') {
+				currentFreq = 'DAILY';
+			} else if (parts.FREQ === 'WEEKLY' && parts.INTERVAL === '2') {
+				currentFreq = 'BIWEEKLY';
+				if (parts.BYDAY) currentDayCode = parts.BYDAY;
+			} else if (parts.FREQ === 'WEEKLY') {
+				currentFreq = 'WEEKLY';
+				if (parts.BYDAY) currentDayCode = parts.BYDAY;
+			} else if (parts.FREQ === 'MONTHLY' && parts.INTERVAL === '3') {
+				currentFreq = 'QUARTERLY';
+				if (parts.BYMONTHDAY) currentMonthDay = parseInt(parts.BYMONTHDAY);
+			} else if (parts.FREQ === 'MONTHLY') {
+				currentFreq = 'MONTHLY';
+				if (parts.BYMONTHDAY) currentMonthDay = parseInt(parts.BYMONTHDAY);
+			} else if (parts.FREQ === 'YEARLY') {
+				currentFreq = 'YEARLY';
+				if (parts.BYMONTHDAY) currentMonthDay = parseInt(parts.BYMONTHDAY);
+				if (parts.BYMONTH) currentMonth = parseInt(parts.BYMONTH);
+			}
+		}
+
+		// Populate frequency dropdown
+		frequencies.forEach(f => {
+			const opt = freqSelect.createEl('option', { value: f.value, text: f.label });
+			if (f.value === currentFreq) opt.selected = true;
+		});
+
+		// Set initial values for detail selects
+		dayOfWeekSelect.value = currentDayCode;
+		dayOfMonthSelect.value = String(currentMonthDay);
+		monthSelect.value = String(currentMonth);
+		yearDaySelect.value = String(currentMonthDay);
+		recurrenceStartInput.value = currentStartDate;
+
+		// Update visibility of detail selects
+		const updateDetailVisibility = () => {
+			const freq = freqSelect.value;
+			dayOfWeekSelect.style.display = (freq === 'WEEKLY' || freq === 'BIWEEKLY') ? '' : 'none';
+			dayOfMonthSelect.style.display = (freq === 'MONTHLY' || freq === 'QUARTERLY') ? '' : 'none';
+			monthSelect.style.display = freq === 'YEARLY' ? '' : 'none';
+			yearDaySelect.style.display = freq === 'YEARLY' ? '' : 'none';
+			startGroup.style.display = freq ? '' : 'none';
+		};
+		updateDetailVisibility();
+
+		// Generate rrule from current selections
+		const generateRRule = (): string => {
+			const startDate = recurrenceStartInput.value || scheduledInput.value || new Date().toISOString().split('T')[0];
+			const dtstart = this.plugin.formatDTSTART(startDate);
+			const freq = freqSelect.value;
+
+			switch (freq) {
+				case 'DAILY':
+					return `DTSTART:${dtstart};FREQ=DAILY;INTERVAL=1`;
+				case 'WEEKDAYS':
+					return `DTSTART:${dtstart};FREQ=DAILY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR`;
+				case 'WEEKLY':
+					return `DTSTART:${dtstart};FREQ=WEEKLY;INTERVAL=1;BYDAY=${dayOfWeekSelect.value}`;
+				case 'BIWEEKLY':
+					return `DTSTART:${dtstart};FREQ=WEEKLY;INTERVAL=2;BYDAY=${dayOfWeekSelect.value}`;
+				case 'MONTHLY':
+					return `DTSTART:${dtstart};FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=${dayOfMonthSelect.value}`;
+				case 'QUARTERLY':
+					return `DTSTART:${dtstart};FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=${dayOfMonthSelect.value}`;
+				case 'YEARLY':
+					return `DTSTART:${dtstart};FREQ=YEARLY;INTERVAL=1;BYMONTH=${monthSelect.value};BYMONTHDAY=${yearDaySelect.value}`;
+				default:
+					return '';
+			}
+		};
+
+		// Update frontmatter when any recurrence field changes
+		const updateRecurrence = () => {
+			const rrule = generateRRule();
+			if (rrule) {
+				const startDate = recurrenceStartInput.value || scheduledInput.value || new Date().toISOString().split('T')[0];
+				this.frontmatter.rrule = rrule;
+				this.frontmatter.recurrence_start = startDate;
+			} else {
+				delete this.frontmatter.rrule;
+				delete this.frontmatter.recurrence_start;
+			}
+		};
+
+		freqSelect.addEventListener('change', () => {
+			updateDetailVisibility();
+			updateRecurrence();
+		});
+		dayOfWeekSelect.addEventListener('change', updateRecurrence);
+		dayOfMonthSelect.addEventListener('change', updateRecurrence);
+		monthSelect.addEventListener('change', updateRecurrence);
+		yearDaySelect.addEventListener('change', updateRecurrence);
+		recurrenceStartInput.addEventListener('change', updateRecurrence);
+
 		// Contexts section (pill toggles)
 		const contextsSection = contentEl.createDiv({ cls: 'edit-task-section' });
 		contextsSection.createDiv({ cls: 'edit-task-section-label', text: 'Contexts' });
@@ -1768,7 +1943,7 @@ export default class MinimalTasksPlugin extends Plugin {
 		return `<span class="minimal-badge minimal-badge-recurrence">🔁 ${readable}</span>`;
 	}
 
-	private formatRRuleReadable(rrule: string): string {
+	formatRRuleReadable(rrule: string): string {
 		if (!rrule) return "";
 
 		try {
@@ -1789,6 +1964,8 @@ export default class MinimalTasksPlugin extends Plugin {
 					case 'MONTHLY': text = "Monthly"; break;
 					case 'YEARLY': text = "Yearly"; break;
 				}
+			} else if (freq === 'MONTHLY' && interval === 3) {
+				text = "Quarterly";
 			} else {
 				switch (freq) {
 					case 'DAILY': text = `Every ${interval} days`; break;
@@ -1824,7 +2001,7 @@ export default class MinimalTasksPlugin extends Plugin {
 		}
 	}
 
-	private parseRRule(rrule: string): Record<string, string> {
+	parseRRule(rrule: string): Record<string, string> {
 		const parts: Record<string, string> = {};
 		const segments = rrule.split(';');
 
@@ -1847,6 +2024,14 @@ export default class MinimalTasksPlugin extends Plugin {
 		if (j === 2 && k !== 12) return "nd";
 		if (j === 3 && k !== 13) return "rd";
 		return "th";
+	}
+
+	formatDTSTART(dateStr: string): string {
+		const d = new Date(dateStr);
+		const year = d.getFullYear();
+		const month = String(d.getMonth() + 1).padStart(2, '0');
+		const day = String(d.getDate()).padStart(2, '0');
+		return `${year}${month}${day}`;
 	}
 
 	renderDateBadges(task: EnrichedTask): string {
