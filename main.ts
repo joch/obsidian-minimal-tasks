@@ -1766,13 +1766,13 @@ export default class MinimalTasksPlugin extends Plugin {
 
 	private createContent(task: EnrichedTask, hasNotes: boolean, isCompleted: boolean, showContexts: boolean, excludePills: string[], path: string): string {
 		const title = this.createTitle(task, isCompleted);
-		const editIcon = `<span class="minimal-task-edit-icon" data-task-path="${path}" title="Edit task">⋯</span>`;
+		const editIcon = `<span class="minimal-task-edit-icon" data-task-path="${path}" title="Edit task">⊙</span>`;
 		const noteIcon = hasNotes && this.settings.showNoteIcon
 			? '<span class="minimal-task-note-icon">›</span>'
 			: '';
 		const metadata = this.createMetadata(task, showContexts, excludePills);
 
-		return `<div class="minimal-task-content">${title}${editIcon}${noteIcon}${metadata}</div>`;
+		return `<div class="minimal-task-content">${title}${noteIcon}${editIcon}${metadata}</div>`;
 	}
 
 	private createTitle(task: EnrichedTask, isCompleted: boolean): string {

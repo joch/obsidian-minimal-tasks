@@ -119,8 +119,6 @@
     opacity: 0.3;
     transition: opacity 0.2s ease;
     user-select: none;
-    position: relative;
-    top: -1px;
 }
 
 .minimal-task-note-icon:hover {
@@ -146,6 +144,12 @@
     white-space: nowrap;
     background: var(--background-modifier-border);
     color: var(--text-muted);
+    opacity: 0.5;
+    transition: opacity 0.2s ease;
+}
+
+.minimal-badge:hover {
+    opacity: 1;
 }
 
 /* Badge variants */
@@ -156,6 +160,7 @@
 .minimal-badge-date.is-overdue {
     background: var(--background-modifier-error);
     color: var(--text-on-accent);
+    opacity: 1;
 }
 
 .minimal-badge-context {
@@ -207,6 +212,12 @@
     color: var(--text-muted);
     font-size: 0.85em;
     margin-bottom: 0.25em;
+    opacity: 0.5;
+    transition: opacity 0.2s ease;
+}
+
+.minimal-task-project:hover {
+    opacity: 1;
 }
 
 /* Convert-to-action icon (appears in edit mode) */
