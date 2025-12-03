@@ -119,15 +119,33 @@
 /* Content area (title + metadata) */
 .minimal-task-content {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     gap: 0.5em;
     flex-wrap: wrap;
     flex-grow: 1;
+    min-width: 0;
+}
+
+/* Title group - icons flow inline with text */
+.minimal-task-title-group {
+    display: inline;
+}
+
+.minimal-task-title-group .minimal-task-note-icon,
+.minimal-task-title-group .minimal-task-edit-icon {
+    margin-left: 0.3em;
 }
 
 /* Task title */
 .minimal-task-title {
     /* Inherits link styling from .internal-link */
+}
+
+/* Keep note and edit icons with title (prevent wrapping) */
+.minimal-task-note-icon,
+.minimal-task-edit-icon {
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .minimal-task-title.is-completed {
@@ -263,6 +281,8 @@
     font-size: 0.85em;
     transition: opacity 0.2s ease;
     user-select: none;
+    padding: 0.3em;
+    margin: -0.3em;
 }
 
 .minimal-task-edit-icon:hover {

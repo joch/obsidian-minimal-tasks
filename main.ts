@@ -1857,7 +1857,10 @@ export default class MinimalTasksPlugin extends Plugin {
 			: '';
 		const metadata = this.createMetadata(task, showContexts, excludePills);
 
-		return `<div class="minimal-task-content">${title}${noteIcon}${editIcon}${metadata}</div>`;
+		// Group title + icons together to prevent wrapping between them
+		const titleGroup = `<span class="minimal-task-title-group">${title}${noteIcon}${editIcon}</span>`;
+
+		return `<div class="minimal-task-content">${titleGroup}${metadata}</div>`;
 	}
 
 	private createTitle(task: EnrichedTask, isCompleted: boolean): string {
@@ -2098,7 +2101,10 @@ export default class MinimalTasksPlugin extends Plugin {
 			? ` <span class="minimal-task-metadata">${badges.join('')}</span>`
 			: '';
 
-		return `${priorityBadge}${statusDot} ${titleHtml}${noteIcon}${editIcon}${metadata}`;
+		// Group title + icons together to prevent wrapping between them
+		const titleGroup = `<span class="minimal-task-title-group">${titleHtml}${noteIcon}${editIcon}</span>`;
+
+		return `${priorityBadge}${statusDot} ${titleGroup}${metadata}`;
 	}
 
 	/**
