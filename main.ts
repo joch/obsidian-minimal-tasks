@@ -178,106 +178,14 @@ class ActionLinkWidget extends WidgetType {
 	}
 
 	toDOM(): HTMLElement {
-		// Use a span container for inline rendering in editor
-		const container = document.createElement('span');
-		container.className = 'minimal-task-inline';
-
 		// Get frontmatter from metadata cache (synchronous)
 		const file = this.plugin.app.vault.getAbstractFileByPath(this.actionPath + '.md');
 		const cache = file ? this.plugin.app.metadataCache.getFileCache(file as TFile) : null;
 		const fm = cache?.frontmatter || {};
-
-		const status = fm.status || 'open';
-		const priority = fm.priority || 'anytime';
-		const title = fm.title || this.displayTitle;
-
-		// Check if action has body content (notes) - exclude code blocks like dataviewjs
 		const hasNotes = cache?.sections?.some(s => s.type === 'paragraph' || s.type === 'list' || s.type === 'heading');
 
-		// Priority badge
-		const priorityBadge = document.createElement('span');
-		priorityBadge.className = 'task-priority-badge';
-		priorityBadge.dataset.priority = priority;
-		priorityBadge.dataset.taskPath = this.actionPath + '.md';
-		priorityBadge.title = `Priority: ${priority} (click to cycle)`;
-		priorityBadge.textContent = this.plugin.getPriorityIcon(priority);
-		container.appendChild(priorityBadge);
-
-		// Status dot
-		const statusDot = document.createElement('span');
-		statusDot.className = 'task-status-dot';
-		statusDot.dataset.status = status;
-		statusDot.dataset.taskPath = this.actionPath + '.md';
-		statusDot.title = `Status: ${status} (click to cycle)`;
-		container.appendChild(statusDot);
-
-		// Space
-		container.appendChild(document.createTextNode(' '));
-
-		// Title as link
-		const titleLink = document.createElement('a');
-		titleLink.className = 'internal-link';
-		if (status === 'done' || status === 'dropped') {
-			titleLink.classList.add('is-completed');
-		}
-		titleLink.dataset.href = this.actionPath;
-		titleLink.href = this.actionPath;
-		titleLink.textContent = title;
-		container.appendChild(titleLink);
-
-		// Note icon
-		if (hasNotes && this.plugin.settings.showNoteIcon) {
-			const noteIcon = document.createElement('span');
-			noteIcon.className = 'minimal-task-note-icon';
-			noteIcon.textContent = ' ›';
-			container.appendChild(noteIcon);
-		}
-
-		// Edit icon
-		const editIcon = document.createElement('span');
-		editIcon.className = 'minimal-task-edit-icon';
-		editIcon.dataset.taskPath = this.actionPath + '.md';
-		editIcon.title = 'Edit task';
-		editIcon.textContent = ' ⊙';
-		container.appendChild(editIcon);
-
-		// Pills inline
-		if (fm.scheduled) {
-			const badge = document.createElement('span');
-			badge.className = 'minimal-badge minimal-badge-date';
-			badge.textContent = `🗓️ ${fm.scheduled}`;
-			container.appendChild(document.createTextNode(' '));
-			container.appendChild(badge);
-		}
-
-		if (fm.due) {
-			const badge = document.createElement('span');
-			badge.className = 'minimal-badge minimal-badge-date';
-			const isOverdue = new Date(fm.due) < new Date(new Date().toDateString());
-			if (isOverdue) badge.classList.add('is-overdue');
-			badge.textContent = `📅 ${fm.due}`;
-			container.appendChild(document.createTextNode(' '));
-			container.appendChild(badge);
-		}
-
-		if (fm.rrule) {
-			const badge = document.createElement('span');
-			badge.className = 'minimal-badge';
-			badge.textContent = `🔁 ${this.plugin.formatRRuleReadable(fm.rrule)}`;
-			container.appendChild(document.createTextNode(' '));
-			container.appendChild(badge);
-		}
-
-		const contexts = fm.contexts || [];
-		contexts.forEach((ctx: string) => {
-			const badge = document.createElement('span');
-			badge.className = 'minimal-badge minimal-badge-context';
-			badge.textContent = `@${ctx}`;
-			container.appendChild(document.createTextNode(' '));
-			container.appendChild(badge);
-		});
-
-		return container;
+		// Use shared rendering method
+		return this.plugin.createInlineTaskElement(fm, this.actionPath + '.md', this.displayTitle, hasNotes || false);
 	}
 
 	eq(other: ActionLinkWidget): boolean {
@@ -2132,6 +2040,104 @@ export default class MinimalTasksPlugin extends Plugin {
 		return `<span class="minimal-badge minimal-badge-recurrence">🔁 ${readable}</span>`;
 	}
 
+	/**
+	 * Render inline task HTML for action links (reuses DataviewJS helpers)
+	 * Used by both widget and postprocessor
+	 */
+	renderInlineTaskHTML(fm: Record<string, any>, path: string, displayTitle: string, hasNotes: boolean): string {
+		const status = fm[this.settings.statusField] || 'open';
+		const priority = fm[this.settings.priorityField] || 'anytime';
+		const title = fm[this.settings.titleField] || displayTitle;
+		const isCompleted = status === 'done' || status === 'dropped';
+		const hrefPath = path.replace('.md', '');
+
+		// Build parts using existing helpers
+		const priorityBadge = this.renderPriorityBadge(priority, path);
+		const statusDot = this.renderStatusDot(status, path);
+
+		const completedClass = isCompleted ? ' is-completed' : '';
+		const titleHtml = `<a class="internal-link${completedClass}" data-href="${hrefPath}" href="${hrefPath}">${this.escapeHtml(title)}</a>`;
+
+		const noteIcon = hasNotes && this.settings.showNoteIcon
+			? '<span class="minimal-task-note-icon"> ›</span>'
+			: '';
+
+		const editIcon = `<span class="minimal-task-edit-icon" data-task-path="${path}" title="Edit task"> ⊙</span>`;
+
+		// Build metadata using existing helpers
+		const badges: string[] = [];
+
+		const scheduled = fm[this.settings.scheduledField];
+		if (scheduled) {
+			badges.push(`<span class="minimal-badge minimal-badge-date">🗓️ ${scheduled}</span>`);
+		}
+
+		const due = fm[this.settings.dueField];
+		if (due) {
+			const isOverdue = new Date(due) < new Date(new Date().toDateString());
+			const overdueClass = isOverdue ? ' is-overdue' : '';
+			badges.push(`<span class="minimal-badge minimal-badge-date${overdueClass}">📅 ${due}</span>`);
+		}
+
+		const rrule = fm[this.settings.rruleField];
+		if (rrule) {
+			badges.push(this.renderRecurrencePill(rrule));
+		}
+
+		const contexts = fm[this.settings.contextsField] || [];
+		if (contexts.length > 0) {
+			badges.push(this.renderContextPills(contexts));
+		}
+
+		const projects = fm[this.settings.projectField] || [];
+		if (projects.length > 0) {
+			badges.push(this.renderProjectPills(projects));
+		}
+
+		const metadata = badges.length > 0
+			? ` <span class="minimal-task-metadata">${badges.join('')}</span>`
+			: '';
+
+		return `${priorityBadge}${statusDot} ${titleHtml}${noteIcon}${editIcon}${metadata}`;
+	}
+
+	/**
+	 * Render project pills (for inline task display)
+	 */
+	renderProjectPills(projects: string | string[]): string {
+		return (Array.isArray(projects) ? projects : [projects])
+			.filter(p => p)
+			.map(project => {
+				const displayName = this.extractDisplayName(project);
+				const linkPath = this.extractLinkPath(project);
+				if (linkPath) {
+					return `<span class="minimal-badge minimal-badge-project"><a class="internal-link" data-href="${linkPath}" href="${linkPath}">📁 ${this.escapeHtml(displayName)}</a></span>`;
+				}
+				return `<span class="minimal-badge minimal-badge-project">📁 ${this.escapeHtml(displayName)}</span>`;
+			})
+			.join('');
+	}
+
+	/**
+	 * Escape HTML special characters
+	 */
+	private escapeHtml(text: string): string {
+		const div = document.createElement('div');
+		div.textContent = text;
+		return div.textContent || '';
+	}
+
+	/**
+	 * Create an inline task element for action links (used by widget and postprocessor)
+	 * Parses HTML from renderInlineTaskHTML using DOMParser for safety
+	 */
+	createInlineTaskElement(fm: Record<string, any>, path: string, displayTitle: string, hasNotes: boolean): HTMLElement {
+		const html = this.renderInlineTaskHTML(fm, path, displayTitle, hasNotes);
+		const parser = new DOMParser();
+		const doc = parser.parseFromString(`<span class="minimal-task-inline">${html}</span>`, 'text/html');
+		return doc.body.firstChild as HTMLElement;
+	}
+
 	formatRRuleReadable(rrule: string): string {
 		if (!rrule) return "";
 
@@ -2914,107 +2920,10 @@ export default class MinimalTasksPlugin extends Plugin {
 
 				const cache = this.app.metadataCache.getFileCache(actionFile);
 				const fm = cache?.frontmatter || {};
+				const hasNotes = cache?.sections?.some(s => s.type === 'paragraph' || s.type === 'list' || s.type === 'heading');
 
-				const status = fm.status || 'none';
-				const priority = fm.priority || 'anytime';
-				const title = fm.title || displayTitle;
-				const contexts = fm.contexts || [];
-				const scheduled = fm.scheduled;
-				const due = fm.due;
-				const rrule = fm.rrule;
-
-				// Check if action has content (notes) - exclude code blocks like dataviewjs
-				const hasContent = cache?.sections?.some(s => s.type === 'paragraph' || s.type === 'list' || s.type === 'heading');
-
-				// Create container for rich task display
-				const container = document.createElement('span');
-				container.className = 'minimal-task-inline';
-
-				// Priority badge
-				const priorityBadge = document.createElement('span');
-				priorityBadge.className = 'task-priority-badge';
-				priorityBadge.setAttribute('data-priority', priority);
-				priorityBadge.setAttribute('data-task-path', actionPath);
-				priorityBadge.textContent = priority === 'today' ? '⭐' : priority === 'someday' ? '💭' : '•';
-				container.appendChild(priorityBadge);
-
-				// Status dot
-				const statusDot = document.createElement('span');
-				statusDot.className = 'task-status-dot';
-				statusDot.setAttribute('data-status', status);
-				statusDot.setAttribute('data-task-path', actionPath);
-				container.appendChild(statusDot);
-
-				// Title link
-				const titleLink = document.createElement('a');
-				titleLink.className = 'internal-link minimal-task-title';
-				titleLink.setAttribute('data-href', actionPath.replace('.md', ''));
-				titleLink.setAttribute('href', actionPath.replace('.md', ''));
-				if (status === 'done' || status === 'dropped') {
-					titleLink.classList.add('is-completed');
-				}
-				titleLink.textContent = title;
-				container.appendChild(titleLink);
-
-				// Note icon
-				if (hasContent) {
-					const noteIcon = document.createElement('span');
-					noteIcon.className = 'minimal-task-note-icon';
-					noteIcon.textContent = '☰';
-					container.appendChild(noteIcon);
-				}
-
-				// Edit icon
-				const editIcon = document.createElement('span');
-				editIcon.className = 'minimal-task-edit-icon';
-				editIcon.setAttribute('data-task-path', actionPath);
-				editIcon.textContent = '⊙';
-				container.appendChild(editIcon);
-
-				// Metadata pills
-				const metadata = document.createElement('span');
-				metadata.className = 'minimal-task-metadata';
-
-				// Scheduled pill
-				if (scheduled) {
-					const pill = document.createElement('span');
-					pill.className = 'minimal-badge minimal-badge-date';
-					pill.textContent = `📅 ${scheduled}`;
-					metadata.appendChild(pill);
-				}
-
-				// Due pill
-				if (due) {
-					const pill = document.createElement('span');
-					pill.className = 'minimal-badge minimal-badge-date';
-					const today = new Date().toISOString().split('T')[0];
-					if (due < today) {
-						pill.classList.add('is-overdue');
-					}
-					pill.textContent = `⚠️ ${due}`;
-					metadata.appendChild(pill);
-				}
-
-				// Recurrence pill
-				if (rrule) {
-					const recurrenceText = this.getRecurrenceDisplayText(rrule);
-					const pill = document.createElement('span');
-					pill.className = 'minimal-badge';
-					pill.textContent = `🔁 ${recurrenceText}`;
-					metadata.appendChild(pill);
-				}
-
-				// Context pills
-				for (const ctx of contexts) {
-					const pill = document.createElement('span');
-					pill.className = 'minimal-badge minimal-badge-context';
-					pill.textContent = `@${ctx}`;
-					metadata.appendChild(pill);
-				}
-
-				if (metadata.children.length > 0) {
-					container.appendChild(metadata);
-				}
+				// Use shared rendering method
+				const container = this.createInlineTaskElement(fm, actionPath, displayTitle, hasNotes || false);
 
 				// Replace the original link with our rich display
 				link.replaceWith(container);
