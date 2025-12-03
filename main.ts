@@ -2640,7 +2640,19 @@ export default class MinimalTasksPlugin extends Plugin {
 
 			// Clone optional fields
 			if (frontmatter.projects) newFrontmatter.projects = frontmatter.projects;
-			if (frontmatter.due) newFrontmatter.due = frontmatter.due;
+
+			// Calculate new due date with same offset from scheduled
+			if (frontmatter.due && frontmatter.scheduled) {
+				const originalScheduled = new Date(frontmatter.scheduled);
+				const originalDue = new Date(frontmatter.due);
+				const offsetMs = originalDue.getTime() - originalScheduled.getTime();
+				const newDue = new Date(new Date(nextDate).getTime() + offsetMs);
+				newFrontmatter.due = newDue.toISOString().split('T')[0];
+			} else if (frontmatter.due) {
+				// If no scheduled date, just copy due as-is
+				newFrontmatter.due = frontmatter.due;
+			}
+
 			if (frontmatter.recurrence_start) newFrontmatter.recurrence_start = frontmatter.recurrence_start;
 			if (frontmatter.store) newFrontmatter.store = frontmatter.store;
 			if (frontmatter['discuss-with']) newFrontmatter['discuss-with'] = frontmatter['discuss-with'];
