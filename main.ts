@@ -1851,7 +1851,7 @@ export default class MinimalTasksPlugin extends Plugin {
 
 	private createContent(task: EnrichedTask, hasNotes: boolean, isCompleted: boolean, showContexts: boolean, excludePills: string[], path: string): string {
 		const title = this.createTitle(task, isCompleted);
-		const editIcon = `<span class="minimal-task-edit-icon" data-task-path="${path}" title="Edit task">⊙</span>`;
+		const editIcon = `<span class="minimal-task-edit-icon" data-task-path="${path}" title="Edit task">⋯</span>`;
 		const noteIcon = hasNotes && this.settings.showNoteIcon
 			? '<span class="minimal-task-note-icon">›</span>'
 			: '';
@@ -2062,10 +2062,10 @@ export default class MinimalTasksPlugin extends Plugin {
 		const titleHtml = `<a class="internal-link${completedClass}" data-href="${hrefPath}" href="${hrefPath}">${this.escapeHtml(title)}</a>`;
 
 		const noteIcon = hasNotes && this.settings.showNoteIcon
-			? '<span class="minimal-task-note-icon"> ›</span>'
+			? '<span class="minimal-task-note-icon">›</span>'
 			: '';
 
-		const editIcon = `<span class="minimal-task-edit-icon" data-task-path="${path}" title="Edit task"> ⊙</span>`;
+		const editIcon = `<span class="minimal-task-edit-icon" data-task-path="${path}" title="Edit task">⋯</span>`;
 
 		// Build metadata using existing helpers
 		const badges: string[] = [];
