@@ -3015,8 +3015,10 @@ export default class MinimalTasksPlugin extends Plugin {
 			// 3. Build frontmatter
 			const frontmatter = this.buildConvertFrontmatter(taskText, context);
 
-			// 4. Create action file
-			const content = this.buildActionContent(frontmatter);
+			// 4. Create action file (with source link)
+			const activeFile = this.app.workspace.getActiveFile();
+			const sourcePath = activeFile?.path;
+			const content = this.buildActionContent(frontmatter, sourcePath);
 			await this.app.vault.create(path, content);
 
 			// 5. Replace line with wikilink
@@ -3074,8 +3076,8 @@ export default class MinimalTasksPlugin extends Plugin {
 			// 3. Build frontmatter
 			const actionFrontmatter = this.buildConvertFrontmatter(taskText, context);
 
-			// 4. Create action file
-			const actionContent = this.buildActionContent(actionFrontmatter);
+			// 4. Create action file (with source link)
+			const actionContent = this.buildActionContent(actionFrontmatter, sourcePath);
 			await this.app.vault.create(path, actionContent);
 
 			// 5. Replace task in source file
@@ -3176,8 +3178,12 @@ export default class MinimalTasksPlugin extends Plugin {
 	/**
 	 * Build action file content with frontmatter and ribbon
 	 */
-	buildActionContent(frontmatter: Frontmatter): string {
-		const body = '```dataviewjs\nawait dv.view("apps/dataview/unified-ribbon");\n```\n';
+	buildActionContent(frontmatter: Frontmatter, sourcePath?: string): string {
+		let body = '```dataviewjs\nawait dv.view("apps/dataview/unified-ribbon");\n```\n';
+		if (sourcePath) {
+			const basename = sourcePath.replace('.md', '');
+			body += `\nCreated from [[${basename}]]\n`;
+		}
 		return this.rebuildContent(frontmatter, body);
 	}
 
