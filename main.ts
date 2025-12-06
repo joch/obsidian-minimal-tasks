@@ -31,6 +31,17 @@ import {
 } from './src/utils';
 import { parseFrontmatter, rebuildContent } from './src/frontmatter';
 import { parseRRule, formatRRuleReadable, calculateNextOccurrence, dayCodeToNumber } from './src/recurrence';
+import {
+	getPriorityIcon,
+	renderStatusDot,
+	renderPriorityBadge,
+	renderContextPills,
+	renderDiscussWithPills,
+	renderDiscussDuringPills,
+	renderStorePill,
+	renderRecurrencePill,
+	renderProjectPills
+} from './src/rendering';
 
 // Widget for the convert-to-action icon
 class ConvertTaskWidget extends WidgetType {
@@ -1821,7 +1832,7 @@ export default class MinimalTasksPlugin extends Plugin {
 	}
 
 	private createControls(priority: string, status: string, path: string): string {
-		return `<div class="minimal-task-controls">${this.renderPriorityBadge(priority, path)}${this.renderStatusDot(status, path)}</div>`;
+		return `<div class="minimal-task-controls">${renderPriorityBadge(priority, path)}${renderStatusDot(status, path)}</div>`;
 	}
 
 	private createContent(task: EnrichedTask, hasNotes: boolean, isCompleted: boolean, showContexts: boolean, excludePills: string[], path: string): string {
@@ -1854,31 +1865,31 @@ export default class MinimalTasksPlugin extends Plugin {
 		// Recurrence pill
 		const rrule = (task as any)[this.settings.rruleField];
 		if (rrule && !excludePills.includes('recurrence')) {
-			badges.push(this.renderRecurrencePill(rrule));
+			badges.push(renderRecurrencePill(rrule));
 		}
 
 		// Context pills
 		const contexts = (task as any)[this.settings.contextsField] || [];
 		if (showContexts && contexts.length > 0 && !excludePills.includes('contexts')) {
-			badges.push(this.renderContextPills(contexts));
+			badges.push(renderContextPills(contexts));
 		}
 
 		// Discuss-with pills
 		const discussWith = (task as any)[this.settings.discussWithField];
 		if (discussWith && !excludePills.includes('person')) {
-			badges.push(this.renderDiscussWithPills(discussWith));
+			badges.push(renderDiscussWithPills(discussWith));
 		}
 
 		// Discuss-during pills
 		const discussDuring = (task as any)[this.settings.discussDuringField];
 		if (discussDuring && !excludePills.includes('meeting')) {
-			badges.push(this.renderDiscussDuringPills(discussDuring));
+			badges.push(renderDiscussDuringPills(discussDuring));
 		}
 
 		// Store pill
 		const store = (task as any)[this.settings.storeField];
 		if (store && !excludePills.includes('store')) {
-			badges.push(this.renderStorePill(store));
+			badges.push(renderStorePill(store));
 		}
 
 		if (badges.length === 0) return '';
@@ -1923,56 +1934,6 @@ export default class MinimalTasksPlugin extends Plugin {
 		return `<div class="minimal-task-project">${projectHtml}</div>`;
 	}
 
-	// Helper rendering methods
-
-	renderStatusDot(status: string, path: string): string {
-		return `<span class="task-status-dot" data-status="${status}" data-task-path="${path}" title="Status: ${status} (click to cycle)"></span>`;
-	}
-
-	renderPriorityBadge(priority: string, path: string): string {
-		const icon = this.getPriorityIcon(priority);
-		return `<span class="task-priority-badge" data-priority="${priority}" data-task-path="${path}" title="Priority: ${priority} (click to cycle)">${icon}</span>`;
-	}
-
-	renderContextPills(contexts: string | string[]): string {
-		return (Array.isArray(contexts) ? contexts : [contexts])
-			.map(ctx => `<span class="minimal-badge minimal-badge-context">@${ctx}</span>`)
-			.join('');
-	}
-
-	renderDiscussWithPills(discussWith: string | string[]): string {
-		return (Array.isArray(discussWith) ? discussWith : [discussWith])
-			.map(person => {
-				const displayName = extractDisplayName(person);
-				const linkPath = extractLinkPath(person);
-
-				if (linkPath) {
-					return `<span class="minimal-badge minimal-badge-person"><a class="internal-link" data-href="${linkPath}" href="${linkPath}" target="_blank" rel="noopener">👤${displayName}</a></span>`;
-				}
-				return `<span class="minimal-badge minimal-badge-person">👤${displayName}</span>`;
-			})
-			.join('');
-	}
-
-	renderDiscussDuringPills(discussDuring: string | string[]): string {
-		return (Array.isArray(discussDuring) ? discussDuring : [discussDuring])
-			.map(event => {
-				const displayName = extractDisplayName(event);
-				const cleanName = stripEventPrefix(displayName);
-				return `<span class="minimal-badge minimal-badge-meeting">📅${cleanName}</span>`;
-			})
-			.join('');
-	}
-
-	renderStorePill(store: string): string {
-		return `<span class="minimal-badge minimal-badge-store">🏪${store}</span>`;
-	}
-
-	renderRecurrencePill(rrule: string): string {
-		const readable = formatRRuleReadable(rrule);
-		return `<span class="minimal-badge minimal-badge-recurrence">🔁 ${readable}</span>`;
-	}
-
 	/**
 	 * Render inline task HTML for action links (reuses DataviewJS helpers)
 	 * Used by both widget and postprocessor
@@ -1985,8 +1946,8 @@ export default class MinimalTasksPlugin extends Plugin {
 		const hrefPath = path.replace('.md', '');
 
 		// Build parts using existing helpers
-		const priorityBadge = this.renderPriorityBadge(priority, path);
-		const statusDot = this.renderStatusDot(status, path);
+		const priorityBadge = renderPriorityBadge(priority, path);
+		const statusDot = renderStatusDot(status, path);
 
 		const completedClass = isCompleted ? ' is-completed' : '';
 		const titleHtml = `<a class="internal-link${completedClass}" data-href="${hrefPath}" href="${hrefPath}">${escapeHtml(title)}</a>`;
@@ -2014,17 +1975,17 @@ export default class MinimalTasksPlugin extends Plugin {
 
 		const rrule = fm[this.settings.rruleField];
 		if (rrule) {
-			badges.push(this.renderRecurrencePill(rrule));
+			badges.push(renderRecurrencePill(rrule));
 		}
 
 		const contexts = fm[this.settings.contextsField] || [];
 		if (contexts.length > 0) {
-			badges.push(this.renderContextPills(contexts));
+			badges.push(renderContextPills(contexts));
 		}
 
 		const projects = fm[this.settings.projectField] || [];
 		if (projects.length > 0) {
-			badges.push(this.renderProjectPills(projects));
+			badges.push(renderProjectPills(projects));
 		}
 
 		const metadata = badges.length > 0
@@ -2035,23 +1996,6 @@ export default class MinimalTasksPlugin extends Plugin {
 		const titleGroup = `<span class="minimal-task-title-group">${titleHtml}${noteIcon}${editIcon}</span>`;
 
 		return `${priorityBadge}${statusDot} ${titleGroup}${metadata}`;
-	}
-
-	/**
-	 * Render project pills (for inline task display)
-	 */
-	renderProjectPills(projects: string | string[]): string {
-		return (Array.isArray(projects) ? projects : [projects])
-			.filter(p => p)
-			.map(project => {
-				const displayName = extractDisplayName(project);
-				const linkPath = extractLinkPath(project);
-				if (linkPath) {
-					return `<span class="minimal-badge minimal-badge-project"><a class="internal-link" data-href="${linkPath}" href="${linkPath}">📁 ${escapeHtml(displayName)}</a></span>`;
-				}
-				return `<span class="minimal-badge minimal-badge-project">📁 ${escapeHtml(displayName)}</span>`;
-			})
-			.join('');
 	}
 
 	/**
@@ -2090,15 +2034,6 @@ export default class MinimalTasksPlugin extends Plugin {
 		}
 
 		return badges.join('');
-	}
-
-	getPriorityIcon(priority: string): string {
-		const icons: { [key: string]: string } = {
-			'today': '⭐',
-			'someday': '💭',
-			'anytime': '•'  // Simple bullet - minimal like Things 3
-		};
-		return icons[priority] || '•';
 	}
 
 	/**
@@ -2283,7 +2218,7 @@ export default class MinimalTasksPlugin extends Plugin {
 
 			// Update priority badge immediately (visual feedback)
 			element.dataset.priority = priority;
-			element.textContent = this.getPriorityIcon(priority);
+			element.textContent = getPriorityIcon(priority);
 
 			// Show notification
 			const priorityLabels: { [key: string]: string } = {
@@ -2368,7 +2303,7 @@ export default class MinimalTasksPlugin extends Plugin {
 
 			// Update priority badge immediately (visual feedback)
 			element.dataset.priority = nextPriority;
-			element.textContent = this.getPriorityIcon(nextPriority);
+			element.textContent = getPriorityIcon(nextPriority);
 
 			// Show notification
 			const priorityLabels: { [key: string]: string } = {
