@@ -665,38 +665,38 @@ class EditTaskModal extends Modal {
 		const recurrenceRow = recurrenceSection.createDiv({ cls: 'edit-task-row-inline' });
 
 		const recurrenceGroup = recurrenceRow.createDiv({ cls: 'edit-task-inline-group' });
-		recurrenceGroup.createSpan({ cls: 'edit-task-label', text: '🔁 Repeat' });
+		recurrenceGroup.createSpan({ cls: 'edit-task-label', text: '🔁 Every' });
 
-		// Frequency dropdown
-		const freqSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
-		const frequencies = [
-			{ label: '(none)', value: '' },
-			{ label: 'Daily', value: 'DAILY' },
-			{ label: 'Weekdays', value: 'WEEKDAYS' },
-			{ label: 'Weekly on', value: 'WEEKLY' },
-			{ label: 'Biweekly on', value: 'BIWEEKLY' },
-			{ label: 'Monthly on the', value: 'MONTHLY' },
-			{ label: 'Quarterly on the', value: 'QUARTERLY' },
-			{ label: 'Biannually on the', value: 'BIANNUAL' },
-			{ label: 'Yearly on', value: 'YEARLY' }
-		];
-
-		// Day of week dropdown (for weekly/biweekly)
-		const dayOfWeekSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
+		// Day names and codes (European order: Monday first)
 		const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 		const dayCodes = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+
+		// Interval input (1, 2, 3...)
+		const intervalInput = recurrenceGroup.createEl('input', {
+			cls: 'edit-task-input-small',
+			attr: { type: 'number', min: '1', max: '99', value: '1' }
+		});
+		intervalInput.style.width = '45px';
+		intervalInput.style.display = 'none';
+
+		// Unit select (day, week, month, year)
+		const unitSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
+		unitSelect.createEl('option', { value: '', text: '(none)' });
+		unitSelect.createEl('option', { value: 'day', text: 'day' });
+		unitSelect.createEl('option', { value: 'week', text: 'week' });
+		unitSelect.createEl('option', { value: 'month', text: 'month' });
+		unitSelect.createEl('option', { value: 'year', text: 'year' });
+
+		// "on" label (shown for week/month/year)
+		const onLabel = recurrenceGroup.createSpan({ cls: 'edit-task-label', text: 'on' });
+		onLabel.style.display = 'none';
+
+		// Day of week dropdown (for weekly)
+		const dayOfWeekSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
 		dayNames.forEach((day, i) => {
 			dayOfWeekSelect.createEl('option', { value: dayCodes[i], text: day });
 		});
 		dayOfWeekSelect.style.display = 'none';
-
-		// Day of month dropdown (for monthly/quarterly)
-		const dayOfMonthSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
-		for (let i = 1; i <= 31; i++) {
-			const suffix = i === 1 || i === 21 || i === 31 ? 'st' : i === 2 || i === 22 ? 'nd' : i === 3 || i === 23 ? 'rd' : 'th';
-			dayOfMonthSelect.createEl('option', { value: String(i), text: `${i}${suffix}` });
-		}
-		dayOfMonthSelect.style.display = 'none';
 
 		// Monthly mode dropdown (day of month vs weekday) - Things 3 style
 		const monthlyModeSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
@@ -720,7 +720,45 @@ class EditTaskModal extends Modal {
 		});
 		positionSelect.style.display = 'none';
 
-		// Start date for recurrence (when recurrence begins)
+		// Day of month dropdown (for monthly when mode is 'day')
+		const dayOfMonthSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
+		for (let i = 1; i <= 31; i++) {
+			const suffix = i === 1 || i === 21 || i === 31 ? 'st' : i === 2 || i === 22 ? 'nd' : i === 3 || i === 23 ? 'rd' : 'th';
+			dayOfMonthSelect.createEl('option', { value: String(i), text: `${i}${suffix}` });
+		}
+		dayOfMonthSelect.style.display = 'none';
+
+		// Month dropdown (for yearly)
+		const monthSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
+		const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+		monthNames.forEach((month, i) => {
+			monthSelect.createEl('option', { value: String(i + 1), text: month });
+		});
+		monthSelect.style.display = 'none';
+
+		// Yearly mode dropdown (day of month vs weekday) - like monthly
+		const yearlyModeSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
+		yearlyModeSelect.createEl('option', { value: 'day', text: 'day' });
+		dayNames.forEach((day, i) => {
+			yearlyModeSelect.createEl('option', { value: dayCodes[i], text: day });
+		});
+		yearlyModeSelect.style.display = 'none';
+
+		// Position dropdown for yearly weekday (reuse same values as monthly)
+		const yearlyPositionSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
+		positions.forEach(p => {
+			yearlyPositionSelect.createEl('option', { value: p.value, text: p.label });
+		});
+		yearlyPositionSelect.style.display = 'none';
+
+		// Day dropdown for yearly (when mode is 'day')
+		const yearDaySelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
+		for (let i = 1; i <= 31; i++) {
+			yearDaySelect.createEl('option', { value: String(i), text: String(i) });
+		}
+		yearDaySelect.style.display = 'none';
+
+		// Start date group
 		const startGroup = recurrenceRow.createDiv({ cls: 'edit-task-inline-group' });
 		startGroup.createSpan({ cls: 'edit-task-label', text: 'from' });
 		const recurrenceStartInput = startGroup.createEl('input', {
@@ -729,28 +767,17 @@ class EditTaskModal extends Modal {
 		});
 		startGroup.style.display = 'none';
 
-		// Month + day for yearly
-		const monthSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
-		const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-		monthNames.forEach((month, i) => {
-			monthSelect.createEl('option', { value: String(i + 1), text: month });
-		});
-		monthSelect.style.display = 'none';
-
-		const yearDaySelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
-		for (let i = 1; i <= 31; i++) {
-			yearDaySelect.createEl('option', { value: String(i), text: String(i) });
-		}
-		yearDaySelect.style.display = 'none';
-
 		// Parse current rrule
 		const currentRRule = String(this.frontmatter.rrule || '').replace(/^["']|["']$/g, '');
-		let currentFreq = '';
+		let currentUnit = '';
+		let currentInterval = 1;
 		let currentDayCode = dayCodes[(new Date().getDay() + 6) % 7]; // Convert JS day (0=Sun) to European index (0=Mon)
 		let currentMonthDay = new Date().getDate();
 		let currentMonth = new Date().getMonth() + 1;
 		let currentMonthlyMode = 'day'; // 'day' or weekday code like 'SA'
+		let currentYearlyMode = 'day'; // 'day' or weekday code like 'SA'
 		let currentPosition = '1'; // 1, 2, 3, 4, or -1 (last)
+		let currentYearlyPosition = '1'; // 1, 2, 3, 4, or -1 (last)
 		let currentStartDate = this.frontmatter.recurrence_start
 			? String(this.frontmatter.recurrence_start).replace(/^["']|["']$/g, '')
 			: scheduledInput.value || new Date().toISOString().split('T')[0];
@@ -764,25 +791,15 @@ class EditTaskModal extends Modal {
 					currentStartDate = `${ds.slice(0,4)}-${ds.slice(4,6)}-${ds.slice(6,8)}`;
 				}
 			}
-			if (parts.FREQ === 'DAILY' && parts.BYDAY === 'MO,TU,WE,TH,FR') {
-				currentFreq = 'WEEKDAYS';
-			} else if (parts.FREQ === 'DAILY') {
-				currentFreq = 'DAILY';
-			} else if (parts.FREQ === 'WEEKLY' && parts.INTERVAL === '2') {
-				currentFreq = 'BIWEEKLY';
-				if (parts.BYDAY) currentDayCode = parts.BYDAY;
+			currentInterval = parseInt(parts.INTERVAL || '1');
+
+			if (parts.FREQ === 'DAILY') {
+				currentUnit = 'day';
 			} else if (parts.FREQ === 'WEEKLY') {
-				currentFreq = 'WEEKLY';
+				currentUnit = 'week';
 				if (parts.BYDAY) currentDayCode = parts.BYDAY;
-			} else if (parts.FREQ === 'MONTHLY' && parts.INTERVAL === '3') {
-				currentFreq = 'QUARTERLY';
-				if (parts.BYMONTHDAY) currentMonthDay = parseInt(parts.BYMONTHDAY);
-			} else if (parts.FREQ === 'MONTHLY' && parts.INTERVAL === '6') {
-				currentFreq = 'BIANNUAL';
-				if (parts.BYMONTHDAY) currentMonthDay = parseInt(parts.BYMONTHDAY);
 			} else if (parts.FREQ === 'MONTHLY') {
-				currentFreq = 'MONTHLY';
-				// Check for positional weekday (BYSETPOS + BYDAY)
+				currentUnit = 'month';
 				if (parts.BYSETPOS && parts.BYDAY) {
 					currentMonthlyMode = parts.BYDAY;
 					currentPosition = parts.BYSETPOS;
@@ -791,75 +808,91 @@ class EditTaskModal extends Modal {
 					currentMonthDay = parseInt(parts.BYMONTHDAY);
 				}
 			} else if (parts.FREQ === 'YEARLY') {
-				currentFreq = 'YEARLY';
-				if (parts.BYMONTHDAY) currentMonthDay = parseInt(parts.BYMONTHDAY);
+				currentUnit = 'year';
 				if (parts.BYMONTH) currentMonth = parseInt(parts.BYMONTH);
+				// Check for positional weekday (BYSETPOS + BYDAY)
+				if (parts.BYSETPOS && parts.BYDAY) {
+					currentYearlyMode = parts.BYDAY;
+					currentYearlyPosition = parts.BYSETPOS;
+				} else if (parts.BYMONTHDAY) {
+					currentYearlyMode = 'day';
+					currentMonthDay = parseInt(parts.BYMONTHDAY);
+				}
 			}
 		}
 
-		// Populate frequency dropdown
-		frequencies.forEach(f => {
-			const opt = freqSelect.createEl('option', { value: f.value, text: f.label });
-			if (f.value === currentFreq) opt.selected = true;
-		});
-
-		// Set initial values for detail selects
+		// Set initial values
+		unitSelect.value = currentUnit;
+		intervalInput.value = String(currentInterval);
 		dayOfWeekSelect.value = currentDayCode;
 		dayOfMonthSelect.value = String(currentMonthDay);
 		monthSelect.value = String(currentMonth);
 		yearDaySelect.value = String(currentMonthDay);
 		monthlyModeSelect.value = currentMonthlyMode;
+		yearlyModeSelect.value = currentYearlyMode;
 		positionSelect.value = currentPosition;
+		yearlyPositionSelect.value = currentYearlyPosition;
 		recurrenceStartInput.value = currentStartDate;
 
 		// Update visibility of detail selects
 		const updateDetailVisibility = () => {
-			const freq = freqSelect.value;
-			const isMonthly = freq === 'MONTHLY' || freq === 'QUARTERLY' || freq === 'BIANNUAL';
+			const unit = unitSelect.value;
 			const monthlyMode = monthlyModeSelect.value;
-			const isWeekdayMode = isMonthly && monthlyMode !== 'day';
+			const yearlyMode = yearlyModeSelect.value;
+			const isMonthlyWeekdayMode = unit === 'month' && monthlyMode !== 'day';
+			const isYearlyWeekdayMode = unit === 'year' && yearlyMode !== 'day';
 
-			dayOfWeekSelect.style.display = (freq === 'WEEKLY' || freq === 'BIWEEKLY') ? '' : 'none';
-			// For monthly: show position + mode dropdown, hide day-of-month if weekday mode
-			monthlyModeSelect.style.display = isMonthly ? '' : 'none';
-			positionSelect.style.display = isWeekdayMode ? '' : 'none';
-			dayOfMonthSelect.style.display = (isMonthly && !isWeekdayMode) ? '' : 'none';
-			monthSelect.style.display = freq === 'YEARLY' ? '' : 'none';
-			yearDaySelect.style.display = freq === 'YEARLY' ? '' : 'none';
-			startGroup.style.display = freq ? '' : 'none';
+			// Show interval when a unit is selected
+			intervalInput.style.display = unit ? '' : 'none';
+
+			// Show "on" label for week/month/year
+			onLabel.style.display = (unit === 'week' || unit === 'month' || unit === 'year') ? '' : 'none';
+
+			// Week: show day of week
+			dayOfWeekSelect.style.display = unit === 'week' ? '' : 'none';
+
+			// Month: show mode selector, then either position or day-of-month
+			monthlyModeSelect.style.display = unit === 'month' ? '' : 'none';
+			positionSelect.style.display = isMonthlyWeekdayMode ? '' : 'none';
+			dayOfMonthSelect.style.display = (unit === 'month' && !isMonthlyWeekdayMode) ? '' : 'none';
+
+			// Year: show month, then mode selector, then either position or day
+			monthSelect.style.display = unit === 'year' ? '' : 'none';
+			yearlyModeSelect.style.display = unit === 'year' ? '' : 'none';
+			yearlyPositionSelect.style.display = isYearlyWeekdayMode ? '' : 'none';
+			yearDaySelect.style.display = (unit === 'year' && !isYearlyWeekdayMode) ? '' : 'none';
+
+			// Start date group
+			startGroup.style.display = unit ? '' : 'none';
 		};
 		updateDetailVisibility();
 
-		// Update visibility when monthly mode changes
+		// Update visibility when monthly/yearly mode changes
 		monthlyModeSelect.addEventListener('change', updateDetailVisibility);
+		yearlyModeSelect.addEventListener('change', updateDetailVisibility);
 
 		// Generate rrule from current selections
 		const generateRRule = (): string => {
 			const startDate = recurrenceStartInput.value || scheduledInput.value || new Date().toISOString().split('T')[0];
 			const dtstart = this.plugin.formatDTSTART(startDate);
-			const freq = freqSelect.value;
+			const unit = unitSelect.value;
+			const interval = parseInt(intervalInput.value) || 1;
 
-			switch (freq) {
-				case 'DAILY':
-					return `DTSTART:${dtstart};FREQ=DAILY;INTERVAL=1`;
-				case 'WEEKDAYS':
-					return `DTSTART:${dtstart};FREQ=DAILY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR`;
-				case 'WEEKLY':
-					return `DTSTART:${dtstart};FREQ=WEEKLY;INTERVAL=1;BYDAY=${dayOfWeekSelect.value}`;
-				case 'BIWEEKLY':
-					return `DTSTART:${dtstart};FREQ=WEEKLY;INTERVAL=2;BYDAY=${dayOfWeekSelect.value}`;
-				case 'MONTHLY':
-					// Check if using positional weekday or day of month
+			switch (unit) {
+				case 'day':
+					return `DTSTART:${dtstart};FREQ=DAILY;INTERVAL=${interval}`;
+				case 'week':
+					return `DTSTART:${dtstart};FREQ=WEEKLY;INTERVAL=${interval};BYDAY=${dayOfWeekSelect.value}`;
+				case 'month':
 					if (monthlyModeSelect.value !== 'day') {
-						return `DTSTART:${dtstart};FREQ=MONTHLY;BYDAY=${monthlyModeSelect.value};BYSETPOS=${positionSelect.value}`;
+						return `DTSTART:${dtstart};FREQ=MONTHLY;INTERVAL=${interval};BYDAY=${monthlyModeSelect.value};BYSETPOS=${positionSelect.value}`;
 					}
-					return `DTSTART:${dtstart};FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=${dayOfMonthSelect.value}`;
-				case 'QUARTERLY':
-					return `DTSTART:${dtstart};FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=${dayOfMonthSelect.value}`;
-				case 'BIANNUAL':
-					return `DTSTART:${dtstart};FREQ=MONTHLY;INTERVAL=6;BYMONTHDAY=${dayOfMonthSelect.value}`;
-				case 'YEARLY':
-					return `DTSTART:${dtstart};FREQ=YEARLY;INTERVAL=1;BYMONTH=${monthSelect.value};BYMONTHDAY=${yearDaySelect.value}`;
+					return `DTSTART:${dtstart};FREQ=MONTHLY;INTERVAL=${interval};BYMONTHDAY=${dayOfMonthSelect.value}`;
+				case 'year':
+					if (yearlyModeSelect.value !== 'day') {
+						return `DTSTART:${dtstart};FREQ=YEARLY;INTERVAL=${interval};BYMONTH=${monthSelect.value};BYDAY=${yearlyModeSelect.value};BYSETPOS=${yearlyPositionSelect.value}`;
+					}
+					return `DTSTART:${dtstart};FREQ=YEARLY;INTERVAL=${interval};BYMONTH=${monthSelect.value};BYMONTHDAY=${yearDaySelect.value}`;
 				default:
 					return '';
 			}
@@ -878,15 +911,18 @@ class EditTaskModal extends Modal {
 			}
 		};
 
-		freqSelect.addEventListener('change', () => {
+		unitSelect.addEventListener('change', () => {
 			updateDetailVisibility();
 			updateRecurrence();
 		});
+		intervalInput.addEventListener('change', updateRecurrence);
 		dayOfWeekSelect.addEventListener('change', updateRecurrence);
 		dayOfMonthSelect.addEventListener('change', updateRecurrence);
 		monthlyModeSelect.addEventListener('change', updateRecurrence);
 		positionSelect.addEventListener('change', updateRecurrence);
 		monthSelect.addEventListener('change', updateRecurrence);
+		yearlyModeSelect.addEventListener('change', updateRecurrence);
+		yearlyPositionSelect.addEventListener('change', updateRecurrence);
 		yearDaySelect.addEventListener('change', updateRecurrence);
 		recurrenceStartInput.addEventListener('change', updateRecurrence);
 

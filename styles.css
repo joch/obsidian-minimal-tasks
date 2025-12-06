@@ -392,12 +392,16 @@
     }
 
     .edit-task-select-small,
-    .edit-task-date-input-small,
     .edit-task-input-small {
         width: auto;
         min-width: 80px;
         max-width: 120px;
         flex: 1;
+    }
+
+    .edit-task-date-input-small {
+        width: 125px;
+        flex: none;
     }
 }
 
@@ -441,7 +445,7 @@
 
 /* Smaller date input for inline rows */
 .edit-task-date-input-small {
-    width: 100px;
+    width: 125px;
     padding: 5px 6px;
     border: 1px solid var(--background-modifier-border);
     border-radius: 6px;
