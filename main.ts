@@ -2,141 +2,35 @@ import { App, Plugin, PluginSettingTab, Setting, Menu, Notice, TFile, TAbstractF
 import { EditorView, ViewPlugin, ViewUpdate, Decoration, DecorationSet, WidgetType } from '@codemirror/view';
 import { Range } from '@codemirror/state';
 
-// Interfaces for settings and data structures
-interface MinimalTasksSettings {
-	// Field names (customizable for different vaults)
-	projectField: string;
-	dueField: string;
-	scheduledField: string;
-	contextsField: string;
-	discussWithField: string;
-	discussDuringField: string;
-	storeField: string;
-	areaField: string;
-	titleField: string;
-	statusField: string;
-	priorityField: string;
-	rruleField: string;
-
-	// Display options
-	showProjects: boolean;
-	showProjectDueDates: boolean;
-	showNoteIcon: boolean;
-	showContextPills: boolean;
-	noteContentIgnorePattern: string;
-	enableConvertIcon: boolean;
-
-	// Status and priority values
-	statuses: string[];
-	priorities: string[];
-}
-
-const DEFAULT_SETTINGS: MinimalTasksSettings = {
-	// Field names (customizable for different vaults)
-	projectField: 'projects',
-	dueField: 'due',
-	scheduledField: 'scheduled',
-	contextsField: 'contexts',
-	discussWithField: 'discuss-with',
-	discussDuringField: 'discuss-during',
-	storeField: 'store',
-	areaField: 'area',
-	titleField: 'title',
-	statusField: 'status',
-	priorityField: 'priority',
-	rruleField: 'rrule',
-
-	// Display options
-	showProjects: true,
-	showProjectDueDates: true,
-	showNoteIcon: true,
-	showContextPills: false,  // Usually hidden in context views
-	noteContentIgnorePattern: '^\\s*```dataviewjs\\s*\\n\\s*await dv\\.view\\("(?:apps\\/dataview\\/)?unified-ribbon"\\);?\\s*\\n\\s*```\\s*',
-	enableConvertIcon: true,
-
-	// Status and priority values
-	statuses: ['none', 'open', 'in-progress', 'done', 'dropped'],
-	priorities: ['anytime', 'today', 'someday']
-};
-
-interface DataviewAPI {
-	fileLink: (path: string, embed?: boolean, display?: string) => string;
-	page: (path: string) => any;
-	date: (dateStr: string) => any;
-}
-
-interface TaskFile {
-	path: string;
-	ctime?: number;
-}
-
-interface EnrichedTask {
-	status: string;
-	priority: string;
-	link: string;
-	file: TaskFile;
-	contexts?: string[];
-	'discuss-with'?: string[];
-	'discuss-during'?: string[];
-	store?: string;
-	due?: string;
-	scheduled?: string;
-	rrule?: string;
-	projects?: any[];
-	projectsWithMeta?: ProjectMeta[];
-}
-
-interface ProjectMeta {
-	link: string;
-	due?: string;
-	dueFormatted?: string;
-	overdue?: boolean;
-}
-
-interface ProcessedTask {
-	task: any;
-	hasNotes: boolean;
-	enrichedTask: EnrichedTask;
-}
-
-interface RenderOptions {
-	hasNotes?: boolean;
-	showProjects?: boolean;
-	showContexts?: boolean;
-	excludePills?: string[];
-}
-
-interface Frontmatter {
-	[key: string]: any;
-}
-
-interface ParsedContent {
-	frontmatter: Frontmatter;
-	body: string;
-}
-
-interface StatusOption {
-	value: string;
-	label: string;
-	icon: string;
-}
-
-interface PriorityOption {
-	value: string;
-	label: string;
-	icon: string;
-}
-
-// Extend Window interface to include MinimalTasks
-declare global {
-	interface Window {
-		MinimalTasks?: {
-			renderTask: (task: EnrichedTask, options?: RenderOptions) => string;
-			renderTaskList: (dv: DataviewAPI, tasks: any[] | any, options?: RenderOptions) => Promise<string>;
-			settings: MinimalTasksSettings;
-		};
-	}
-}
+// Import types and settings from modules
+import {
+	MinimalTasksSettings,
+	DataviewAPI,
+	TaskFile,
+	EnrichedTask,
+	ProjectMeta,
+	ProcessedTask,
+	RenderOptions,
+	Frontmatter,
+	ParsedContent,
+	StatusOption,
+	PriorityOption
+} from './src/types';
+import { DEFAULT_SETTINGS } from './src/settings';
+import {
+	escapeHtml,
+	generateTimestamp,
+	ordinalSuffix,
+	ordinalNumber,
+	formatDate,
+	formatDTSTART,
+	formatDateForInput,
+	extractDisplayName,
+	extractLinkPath,
+	stripEventPrefix
+} from './src/utils';
+import { parseFrontmatter, rebuildContent } from './src/frontmatter';
+import { parseRRule, formatRRuleReadable, calculateNextOccurrence, dayCodeToNumber } from './src/recurrence';
 
 // Widget for the convert-to-action icon
 class ConvertTaskWidget extends WidgetType {
@@ -637,7 +531,7 @@ class EditTaskModal extends Modal {
 			cls: 'edit-task-date-input-small',
 			attr: {
 				type: 'date',
-				value: this.formatDateForInput(this.frontmatter.scheduled)
+				value: formatDateForInput(this.frontmatter.scheduled)
 			}
 		});
 		scheduledInput.addEventListener('change', () => {
@@ -652,7 +546,7 @@ class EditTaskModal extends Modal {
 			cls: 'edit-task-date-input-small',
 			attr: {
 				type: 'date',
-				value: this.formatDateForInput(this.frontmatter.due)
+				value: formatDateForInput(this.frontmatter.due)
 			}
 		});
 		dueInput.addEventListener('change', () => {
@@ -1400,16 +1294,6 @@ If title can be improved (more concise, action-oriented), suggest improvement.`;
 		};
 	}
 
-	private formatDateForInput(dateValue: any): string {
-		if (!dateValue) return '';
-		const str = String(dateValue).replace(/^["']|["']$/g, '');
-		// Handle Luxon DateTime or ISO string
-		if (str.length >= 10) {
-			return str.substring(0, 10);
-		}
-		return '';
-	}
-
 	private getArrayField(field: string): string[] {
 		const value = this.frontmatter[field];
 		if (Array.isArray(value)) {
@@ -1601,7 +1485,7 @@ export default class MinimalTasksPlugin extends Plugin {
 	async createNewAction(prefill?: { project?: string; context?: string; area?: string; body?: string }): Promise<void> {
 		try {
 			// Generate filename
-			const timestamp = this.generateTimestamp();
+			const timestamp = generateTimestamp();
 			const filename = `${timestamp}.md`;
 			const path = `gtd/actions/${filename}`;
 
@@ -1670,7 +1554,7 @@ export default class MinimalTasksPlugin extends Plugin {
 		// For checklists, include the body content in the new action
 		if (type === 'checklist-template' || type === 'checklist') {
 			const content = await this.app.vault.read(activeFile);
-			const parsed = this.parseFrontmatter(content);
+			const parsed = parseFrontmatter(content);
 			// Remove any existing dataviewjs blocks from the body
 			const cleanBody = parsed.body
 				.replace(/```dataviewjs\s*\n[\s\S]*?\n```\s*/g, '')
@@ -2059,8 +1943,8 @@ export default class MinimalTasksPlugin extends Plugin {
 	renderDiscussWithPills(discussWith: string | string[]): string {
 		return (Array.isArray(discussWith) ? discussWith : [discussWith])
 			.map(person => {
-				const displayName = this.extractDisplayName(person);
-				const linkPath = this.extractLinkPath(person);
+				const displayName = extractDisplayName(person);
+				const linkPath = extractLinkPath(person);
 
 				if (linkPath) {
 					return `<span class="minimal-badge minimal-badge-person"><a class="internal-link" data-href="${linkPath}" href="${linkPath}" target="_blank" rel="noopener">👤${displayName}</a></span>`;
@@ -2070,56 +1954,11 @@ export default class MinimalTasksPlugin extends Plugin {
 			.join('');
 	}
 
-	/**
-	 * Extract display name from a wikilink
-	 * Handles: [[Page Name]], [[path/Page Name]], [[path/Page|Display]]
-	 */
-	extractDisplayName(link: any): string {
-		if (!link) return link;
-
-		// Convert to string if it's not already (handles Dataview Link objects)
-		const linkStr = String(link);
-
-		// Extract from [[Page Name]] or [[path/Page Name|Display]]
-		const match = linkStr.match(/\[\[(?:[^\]|]+\|)?([^\]]+)\]\]/);
-		if (match) return match[1];
-
-		// Not a wikilink, return as-is
-		return linkStr;
-	}
-
-	/**
-	 * Extract the link path from a wikilink
-	 * Handles: [[path/Page Name]], [[path/Page Name|Display]]
-	 */
-	extractLinkPath(link: any): string | null {
-		if (!link) return null;
-
-		// Convert to string if it's not already (handles Dataview Link objects)
-		const linkStr = String(link);
-
-		// Extract path from [[path/Page Name]] or [[path/Page Name|Display]]
-		const match = linkStr.match(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/);
-		if (match) return match[1];
-
-		return null;
-	}
-
-	/**
-	 * Strip date/time prefix from event names
-	 * Events are named "YYYY-MM-DD HHMM Event Name" - this strips the prefix
-	 */
-	stripEventPrefix(eventName: string): string {
-		if (!eventName) return eventName;
-		// Strip "YYYY-MM-DD HHMM " prefix if present
-		return eventName.replace(/^\d{4}-\d{2}-\d{2} \d{4} /, '');
-	}
-
 	renderDiscussDuringPills(discussDuring: string | string[]): string {
 		return (Array.isArray(discussDuring) ? discussDuring : [discussDuring])
 			.map(event => {
-				const displayName = this.extractDisplayName(event);
-				const cleanName = this.stripEventPrefix(displayName);
+				const displayName = extractDisplayName(event);
+				const cleanName = stripEventPrefix(displayName);
 				return `<span class="minimal-badge minimal-badge-meeting">📅${cleanName}</span>`;
 			})
 			.join('');
@@ -2130,7 +1969,7 @@ export default class MinimalTasksPlugin extends Plugin {
 	}
 
 	renderRecurrencePill(rrule: string): string {
-		const readable = this.formatRRuleReadable(rrule);
+		const readable = formatRRuleReadable(rrule);
 		return `<span class="minimal-badge minimal-badge-recurrence">🔁 ${readable}</span>`;
 	}
 
@@ -2150,7 +1989,7 @@ export default class MinimalTasksPlugin extends Plugin {
 		const statusDot = this.renderStatusDot(status, path);
 
 		const completedClass = isCompleted ? ' is-completed' : '';
-		const titleHtml = `<a class="internal-link${completedClass}" data-href="${hrefPath}" href="${hrefPath}">${this.escapeHtml(title)}</a>`;
+		const titleHtml = `<a class="internal-link${completedClass}" data-href="${hrefPath}" href="${hrefPath}">${escapeHtml(title)}</a>`;
 
 		const noteIcon = hasNotes && this.settings.showNoteIcon
 			? '<span class="minimal-task-note-icon">›</span>'
@@ -2205,23 +2044,14 @@ export default class MinimalTasksPlugin extends Plugin {
 		return (Array.isArray(projects) ? projects : [projects])
 			.filter(p => p)
 			.map(project => {
-				const displayName = this.extractDisplayName(project);
-				const linkPath = this.extractLinkPath(project);
+				const displayName = extractDisplayName(project);
+				const linkPath = extractLinkPath(project);
 				if (linkPath) {
-					return `<span class="minimal-badge minimal-badge-project"><a class="internal-link" data-href="${linkPath}" href="${linkPath}">📁 ${this.escapeHtml(displayName)}</a></span>`;
+					return `<span class="minimal-badge minimal-badge-project"><a class="internal-link" data-href="${linkPath}" href="${linkPath}">📁 ${escapeHtml(displayName)}</a></span>`;
 				}
-				return `<span class="minimal-badge minimal-badge-project">📁 ${this.escapeHtml(displayName)}</span>`;
+				return `<span class="minimal-badge minimal-badge-project">📁 ${escapeHtml(displayName)}</span>`;
 			})
 			.join('');
-	}
-
-	/**
-	 * Escape HTML special characters
-	 */
-	private escapeHtml(text: string): string {
-		const div = document.createElement('div');
-		div.textContent = text;
-		return div.textContent || '';
 	}
 
 	/**
@@ -2235,112 +2065,6 @@ export default class MinimalTasksPlugin extends Plugin {
 		return doc.body.firstChild as HTMLElement;
 	}
 
-	formatRRuleReadable(rrule: string): string {
-		if (!rrule) return "";
-
-		try {
-			const parts = this.parseRRule(rrule);
-			const freq = parts.FREQ;
-			const interval = parseInt(parts.INTERVAL || '1');
-			const byDay = parts.BYDAY;
-			const byMonthDay = parts.BYMONTHDAY;
-			const byMonth = parts.BYMONTH;
-			const bySetPos = parts.BYSETPOS;
-
-			let text = "";
-
-			// Frequency
-			if (interval === 1) {
-				switch (freq) {
-					case 'DAILY': text = "Daily"; break;
-					case 'WEEKLY': text = "Weekly"; break;
-					case 'MONTHLY': text = "Monthly"; break;
-					case 'YEARLY': text = "Yearly"; break;
-				}
-			} else if (freq === 'MONTHLY' && interval === 3) {
-				text = "Quarterly";
-			} else if (freq === 'MONTHLY' && interval === 6) {
-				text = "Biannually";
-			} else {
-				switch (freq) {
-					case 'DAILY': text = `Every ${interval} days`; break;
-					case 'WEEKLY': text = `Every ${interval} weeks`; break;
-					case 'MONTHLY': text = `Every ${interval} months`; break;
-					case 'YEARLY': text = `Every ${interval} years`; break;
-				}
-			}
-
-			// Add specifics
-			// Handle positional weekday (BYSETPOS + BYDAY) for monthly/yearly
-			if (bySetPos && byDay) {
-				const days: Record<string, string> = { SU: 'Sun', MO: 'Mon', TU: 'Tue', WE: 'Wed', TH: 'Thu', FR: 'Fri', SA: 'Sat' };
-				const dayName = days[byDay] || byDay;
-				const position = parseInt(bySetPos);
-				const positionText = position === -1 ? "last" : this.ordinalNumber(position);
-				text += ` on the ${positionText} ${dayName}`;
-			} else if (byDay) {
-				// Regular BYDAY (for weekly patterns, etc.)
-				const dayNames = byDay.split(',').map((code: string) => {
-					const days: Record<string, string> = { SU: 'Sun', MO: 'Mon', TU: 'Tue', WE: 'Wed', TH: 'Thu', FR: 'Fri', SA: 'Sat' };
-					return days[code] || code;
-				});
-				text += " on " + dayNames.join(', ');
-			}
-
-			if (byMonthDay) {
-				text += " on the " + byMonthDay + this.ordinalSuffix(parseInt(byMonthDay));
-			}
-
-			if (byMonth) {
-				const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-				text += " in " + monthNames[parseInt(byMonth)];
-			}
-
-			return text;
-
-		} catch (error) {
-			console.error("Failed to format RRULE:", error);
-			return "Recurring"; // Fall back to simple text
-		}
-	}
-
-	parseRRule(rrule: string): Record<string, string> {
-		const parts: Record<string, string> = {};
-		const segments = rrule.split(';');
-
-		segments.forEach(segment => {
-			const [key, value] = segment.split(':').length === 2
-				? segment.split(':')
-				: segment.split('=');
-			if (key && value) {
-				parts[key] = value;
-			}
-		});
-
-		return parts;
-	}
-
-	private ordinalSuffix(num: number): string {
-		const j = num % 10;
-		const k = num % 100;
-		if (j === 1 && k !== 11) return "st";
-		if (j === 2 && k !== 12) return "nd";
-		if (j === 3 && k !== 13) return "rd";
-		return "th";
-	}
-
-	private ordinalNumber(num: number): string {
-		return num + this.ordinalSuffix(num);
-	}
-
-	formatDTSTART(dateStr: string): string {
-		const d = new Date(dateStr);
-		const year = d.getFullYear();
-		const month = String(d.getMonth() + 1).padStart(2, '0');
-		const day = String(d.getDate()).padStart(2, '0');
-		return `${year}${month}${day}`;
-	}
-
 	renderDateBadges(task: EnrichedTask): string {
 		const badges: string[] = [];
 		const due = (task as any)[this.settings.dueField];
@@ -2349,7 +2073,7 @@ export default class MinimalTasksPlugin extends Plugin {
 		if (scheduled) {
 			const scheduledDate = new Date(scheduled);
 			scheduledDate.setHours(0, 0, 0, 0);
-			const formattedScheduled = this.formatDate(scheduledDate);
+			const formattedScheduled = formatDate(scheduledDate);
 			badges.push(`<span class="minimal-badge minimal-badge-date">🗓️ ${formattedScheduled}</span>`);
 		}
 
@@ -2359,18 +2083,13 @@ export default class MinimalTasksPlugin extends Plugin {
 			const today = new Date();
 			today.setHours(0, 0, 0, 0);
 			const isOverdue = dueDate < today;
-			const formattedDue = this.formatDate(dueDate);
+			const formattedDue = formatDate(dueDate);
 			const icon = isOverdue ? '⚠️' : '📅';
 			const badgeClass = isOverdue ? ' is-overdue' : '';
 			badges.push(`<span class="minimal-badge minimal-badge-date${badgeClass}">${icon} ${formattedDue}</span>`);
 		}
 
 		return badges.join('');
-	}
-
-	formatDate(date: Date): string {
-		const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-		return `${months[date.getMonth()]} ${date.getDate()}`;
 	}
 
 	getPriorityIcon(priority: string): string {
@@ -2678,7 +2397,7 @@ export default class MinimalTasksPlugin extends Plugin {
 		const content = await this.app.vault.read(file);
 
 		// Parse frontmatter
-		const { frontmatter, body } = this.parseFrontmatter(content);
+		const { frontmatter, body } = parseFrontmatter(content);
 
 		// Check if this is a recurring task being marked as done
 		const isRecurring = frontmatter.rrule && String(frontmatter.rrule).trim().length > 0;
@@ -2703,7 +2422,7 @@ export default class MinimalTasksPlugin extends Plugin {
 		}
 
 		// Rebuild content
-		const newContent = this.rebuildContent(frontmatter, body);
+		const newContent = rebuildContent(frontmatter, body);
 
 		// Write back
 		await this.app.vault.modify(file, newContent);
@@ -2720,7 +2439,7 @@ export default class MinimalTasksPlugin extends Plugin {
 			const today = new Date().toISOString().split('T')[0];
 
 			// Calculate next scheduled date using recurrence_calculator
-			const nextDate = this.calculateNextOccurrence(rrule, today);
+			const nextDate = calculateNextOccurrence(rrule, today);
 
 			// Create new task filename (timestamp-based)
 			const now = new Date();
@@ -2771,7 +2490,7 @@ export default class MinimalTasksPlugin extends Plugin {
 			if (frontmatter['discuss-during']) newFrontmatter['discuss-during'] = frontmatter['discuss-during'];
 
 			// Build new content
-			const newContent = this.rebuildContent(newFrontmatter, body);
+			const newContent = rebuildContent(newFrontmatter, body);
 
 			// Create new task file
 			await this.app.vault.create(newPath, newContent);
@@ -2782,217 +2501,6 @@ export default class MinimalTasksPlugin extends Plugin {
 			console.error('Failed to create recurring task instance:', error);
 			new Notice('⚠️ Failed to create next instance: ' + (error as Error).message, 5000);
 		}
-	}
-
-	/**
-	 * Calculate next occurrence using RRULE
-	 * This is a simplified implementation - uses the same logic as recurrence_calculator.js
-	 */
-	private calculateNextOccurrence(rrule: string, afterDate: string): string {
-		const parts = this.parseRRule(rrule);
-		const after = new Date(afterDate);
-		after.setDate(after.getDate() + 1); // Start from tomorrow
-
-		// Parse start date from DTSTART
-		const dtstart = parts.DTSTART;
-		if (!dtstart) throw new Error('DTSTART is required in RRULE');
-
-		const startDate = new Date(
-			parseInt(dtstart.substring(0, 4)),
-			parseInt(dtstart.substring(4, 6)) - 1,
-			parseInt(dtstart.substring(6, 8))
-		);
-
-		const freq = parts.FREQ;
-		if (!freq) throw new Error('FREQ is required in RRULE');
-
-		const interval = parseInt(parts.INTERVAL || '1');
-
-		let next: Date;
-
-		switch (freq) {
-			case 'DAILY':
-				next = new Date(after);
-				if (parts.BYDAY) {
-					// Specific days of week (e.g., weekdays)
-					const allowedDays = parts.BYDAY.split(',').map(this.dayCodeToNumber);
-					while (!allowedDays.includes(next.getDay())) {
-						next.setDate(next.getDate() + 1);
-					}
-				} else {
-					// Every N days from start date
-					const daysSinceStart = Math.floor((next.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-					const remainder = daysSinceStart % interval;
-					if (remainder !== 0) {
-						next.setDate(next.getDate() + (interval - remainder));
-					}
-				}
-				break;
-
-			case 'WEEKLY':
-				next = new Date(after);
-				const byDay = parts.BYDAY || ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][startDate.getDay()];
-				const allowedDays = byDay.split(',').map(this.dayCodeToNumber);
-
-				// Find next occurrence of allowed day
-				let found = false;
-				for (let i = 0; i < 7 && !found; i++) {
-					if (allowedDays.includes(next.getDay())) {
-						if (interval === 1) {
-							found = true;
-							break;
-						}
-						const weeksSinceStart = Math.floor((next.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 7));
-						if (weeksSinceStart % interval === 0) {
-							found = true;
-							break;
-						}
-					}
-					next.setDate(next.getDate() + 1);
-				}
-
-				if (!found) {
-					// Advance to next interval week
-					next = new Date(after);
-					next.setDate(next.getDate() + (interval * 7));
-					while (!allowedDays.includes(next.getDay())) {
-						next.setDate(next.getDate() + 1);
-					}
-				}
-				break;
-
-			case 'MONTHLY':
-				next = new Date(after);
-				const dayOfMonth = parts.BYMONTHDAY ? parseInt(parts.BYMONTHDAY) : startDate.getDate();
-				next.setDate(dayOfMonth);
-
-				if (next <= after) {
-					next.setMonth(next.getMonth() + interval);
-				} else {
-					const monthsSinceStart = (next.getFullYear() - startDate.getFullYear()) * 12 + (next.getMonth() - startDate.getMonth());
-					if (monthsSinceStart % interval !== 0) {
-						const remainder = monthsSinceStart % interval;
-						next.setMonth(next.getMonth() + (interval - remainder));
-					}
-				}
-
-				// Handle months with fewer days
-				while (next.getDate() !== dayOfMonth) {
-					next.setDate(0); // Go to last day of previous month
-					next.setMonth(next.getMonth() + 1);
-				}
-				break;
-
-			case 'YEARLY':
-				next = new Date(after);
-				const month = parts.BYMONTH ? parseInt(parts.BYMONTH) - 1 : startDate.getMonth();
-				const day = parts.BYMONTHDAY ? parseInt(parts.BYMONTHDAY) : startDate.getDate();
-				next.setMonth(month);
-				next.setDate(day);
-
-				if (next <= after) {
-					next.setFullYear(next.getFullYear() + interval);
-				} else {
-					const yearsSinceStart = next.getFullYear() - startDate.getFullYear();
-					if (yearsSinceStart % interval !== 0) {
-						const remainder = yearsSinceStart % interval;
-						next.setFullYear(next.getFullYear() + (interval - remainder));
-					}
-				}
-				break;
-
-			default:
-				throw new Error('Unsupported FREQ: ' + freq);
-		}
-
-		// Format as YYYY-MM-DD
-		const year = next.getFullYear();
-		const monthStr = String(next.getMonth() + 1).padStart(2, '0');
-		const dayStr = String(next.getDate()).padStart(2, '0');
-		return `${year}-${monthStr}-${dayStr}`;
-	}
-
-	private dayCodeToNumber(code: string): number {
-		const days: Record<string, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
-		return days[code] || 0;
-	}
-
-	/**
-	 * Parse frontmatter and body from file content
-	 */
-	parseFrontmatter(content: string): ParsedContent {
-		const regex = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
-		const match = content.match(regex);
-
-		if (!match) {
-			return { frontmatter: {}, body: content };
-		}
-
-		const frontmatterText = match[1];
-		const body = match[2];
-
-		// Parse YAML frontmatter into object
-		const frontmatter: Frontmatter = {};
-		const lines = frontmatterText.split('\n');
-
-		let currentKey: string | null = null;
-		let currentArray: string[] | null = null;
-
-		for (const line of lines) {
-			// Array item
-			if (line.trim().startsWith('- ')) {
-				if (currentArray) {
-					currentArray.push(line.trim().substring(2));
-				}
-				continue;
-			}
-
-			// Key-value pair
-			const colonIndex = line.indexOf(':');
-			if (colonIndex > 0) {
-				const key = line.substring(0, colonIndex).trim();
-				const value = line.substring(colonIndex + 1).trim();
-
-				currentKey = key;
-
-				// Empty value might indicate array
-				if (value === '') {
-					currentArray = [];
-					frontmatter[key] = currentArray;
-				} else {
-					frontmatter[key] = value;
-					currentArray = null;
-				}
-			}
-		}
-
-		return { frontmatter, body };
-	}
-
-	/**
-	 * Rebuild file content from frontmatter and body
-	 */
-	rebuildContent(frontmatter: Frontmatter, body: string): string {
-		const lines: string[] = [];
-
-		for (const [key, value] of Object.entries(frontmatter)) {
-			if (Array.isArray(value)) {
-				if (value.length === 0) {
-					// Empty array - output as []
-					lines.push(`${key}: []`);
-				} else {
-					lines.push(`${key}:`);
-					value.forEach(item => {
-						lines.push(`  - ${item}`);
-					});
-				}
-			} else {
-				lines.push(`${key}: ${value}`);
-			}
-		}
-
-		const frontmatterText = lines.join('\n');
-		return `---\n${frontmatterText}\n---\n${body}`;
 	}
 
 	/**
@@ -3114,7 +2622,7 @@ export default class MinimalTasksPlugin extends Plugin {
 			const context = await this.detectNoteContext();
 
 			// 2. Generate filename
-			const timestamp = this.generateTimestamp();
+			const timestamp = generateTimestamp();
 			const filename = `${timestamp}.md`;
 			const path = `gtd/actions/${filename}`;
 
@@ -3156,7 +2664,7 @@ export default class MinimalTasksPlugin extends Plugin {
 
 			// 1. Detect context from source note
 			const content = await this.app.vault.read(sourceFile);
-			const { frontmatter } = this.parseFrontmatter(content);
+			const { frontmatter } = parseFrontmatter(content);
 
 			let context: { projects?: string[], area?: string } = {};
 
@@ -3175,7 +2683,7 @@ export default class MinimalTasksPlugin extends Plugin {
 			}
 
 			// 2. Generate filename
-			const timestamp = this.generateTimestamp();
+			const timestamp = generateTimestamp();
 			const filename = `${timestamp}.md`;
 			const path = `gtd/actions/${filename}`;
 
@@ -3213,7 +2721,7 @@ export default class MinimalTasksPlugin extends Plugin {
 		if (!activeFile) return {};
 
 		const content = await this.app.vault.read(activeFile);
-		const { frontmatter } = this.parseFrontmatter(content);
+		const { frontmatter } = parseFrontmatter(content);
 
 		// Check if we're in a project note
 		if (activeFile.path.startsWith('gtd/projects/') && !activeFile.path.includes('archive')) {
@@ -3232,15 +2740,6 @@ export default class MinimalTasksPlugin extends Plugin {
 		}
 
 		return {};
-	}
-
-	/**
-	 * Generate timestamp for action filename (YYYYMMDD-HHMMSS)
-	 */
-	generateTimestamp(): string {
-		const now = new Date();
-		const pad = (n: number) => n.toString().padStart(2, '0');
-		return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 	}
 
 	/**
@@ -3290,7 +2789,7 @@ export default class MinimalTasksPlugin extends Plugin {
 			const basename = sourcePath.replace('.md', '');
 			body += `\nCreated from [[${basename}]]\n`;
 		}
-		return this.rebuildContent(frontmatter, body);
+		return rebuildContent(frontmatter, body);
 	}
 
 	onunload(): void {
