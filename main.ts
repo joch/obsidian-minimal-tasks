@@ -677,13 +677,14 @@ class EditTaskModal extends Modal {
 			{ label: 'Biweekly on', value: 'BIWEEKLY' },
 			{ label: 'Monthly on the', value: 'MONTHLY' },
 			{ label: 'Quarterly on the', value: 'QUARTERLY' },
+			{ label: 'Biannually on the', value: 'BIANNUAL' },
 			{ label: 'Yearly on', value: 'YEARLY' }
 		];
 
 		// Day of week dropdown (for weekly/biweekly)
 		const dayOfWeekSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
-		const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-		const dayCodes = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+		const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+		const dayCodes = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
 		dayNames.forEach((day, i) => {
 			dayOfWeekSelect.createEl('option', { value: dayCodes[i], text: day });
 		});
@@ -696,6 +697,28 @@ class EditTaskModal extends Modal {
 			dayOfMonthSelect.createEl('option', { value: String(i), text: `${i}${suffix}` });
 		}
 		dayOfMonthSelect.style.display = 'none';
+
+		// Monthly mode dropdown (day of month vs weekday) - Things 3 style
+		const monthlyModeSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
+		monthlyModeSelect.createEl('option', { value: 'day', text: 'day' });
+		dayNames.forEach((day, i) => {
+			monthlyModeSelect.createEl('option', { value: dayCodes[i], text: day });
+		});
+		monthlyModeSelect.style.display = 'none';
+
+		// Position dropdown for monthly weekday (1st, 2nd, 3rd, 4th, last)
+		const positionSelect = recurrenceGroup.createEl('select', { cls: 'edit-task-select-small' });
+		const positions = [
+			{ label: '1st', value: '1' },
+			{ label: '2nd', value: '2' },
+			{ label: '3rd', value: '3' },
+			{ label: '4th', value: '4' },
+			{ label: 'last', value: '-1' }
+		];
+		positions.forEach(p => {
+			positionSelect.createEl('option', { value: p.value, text: p.label });
+		});
+		positionSelect.style.display = 'none';
 
 		// Start date for recurrence (when recurrence begins)
 		const startGroup = recurrenceRow.createDiv({ cls: 'edit-task-inline-group' });
@@ -723,9 +746,11 @@ class EditTaskModal extends Modal {
 		// Parse current rrule
 		const currentRRule = String(this.frontmatter.rrule || '').replace(/^["']|["']$/g, '');
 		let currentFreq = '';
-		let currentDayCode = dayCodes[new Date().getDay()];
+		let currentDayCode = dayCodes[(new Date().getDay() + 6) % 7]; // Convert JS day (0=Sun) to European index (0=Mon)
 		let currentMonthDay = new Date().getDate();
 		let currentMonth = new Date().getMonth() + 1;
+		let currentMonthlyMode = 'day'; // 'day' or weekday code like 'SA'
+		let currentPosition = '1'; // 1, 2, 3, 4, or -1 (last)
 		let currentStartDate = this.frontmatter.recurrence_start
 			? String(this.frontmatter.recurrence_start).replace(/^["']|["']$/g, '')
 			: scheduledInput.value || new Date().toISOString().split('T')[0];
@@ -752,9 +777,19 @@ class EditTaskModal extends Modal {
 			} else if (parts.FREQ === 'MONTHLY' && parts.INTERVAL === '3') {
 				currentFreq = 'QUARTERLY';
 				if (parts.BYMONTHDAY) currentMonthDay = parseInt(parts.BYMONTHDAY);
+			} else if (parts.FREQ === 'MONTHLY' && parts.INTERVAL === '6') {
+				currentFreq = 'BIANNUAL';
+				if (parts.BYMONTHDAY) currentMonthDay = parseInt(parts.BYMONTHDAY);
 			} else if (parts.FREQ === 'MONTHLY') {
 				currentFreq = 'MONTHLY';
-				if (parts.BYMONTHDAY) currentMonthDay = parseInt(parts.BYMONTHDAY);
+				// Check for positional weekday (BYSETPOS + BYDAY)
+				if (parts.BYSETPOS && parts.BYDAY) {
+					currentMonthlyMode = parts.BYDAY;
+					currentPosition = parts.BYSETPOS;
+				} else if (parts.BYMONTHDAY) {
+					currentMonthlyMode = 'day';
+					currentMonthDay = parseInt(parts.BYMONTHDAY);
+				}
 			} else if (parts.FREQ === 'YEARLY') {
 				currentFreq = 'YEARLY';
 				if (parts.BYMONTHDAY) currentMonthDay = parseInt(parts.BYMONTHDAY);
@@ -773,18 +808,30 @@ class EditTaskModal extends Modal {
 		dayOfMonthSelect.value = String(currentMonthDay);
 		monthSelect.value = String(currentMonth);
 		yearDaySelect.value = String(currentMonthDay);
+		monthlyModeSelect.value = currentMonthlyMode;
+		positionSelect.value = currentPosition;
 		recurrenceStartInput.value = currentStartDate;
 
 		// Update visibility of detail selects
 		const updateDetailVisibility = () => {
 			const freq = freqSelect.value;
+			const isMonthly = freq === 'MONTHLY' || freq === 'QUARTERLY' || freq === 'BIANNUAL';
+			const monthlyMode = monthlyModeSelect.value;
+			const isWeekdayMode = isMonthly && monthlyMode !== 'day';
+
 			dayOfWeekSelect.style.display = (freq === 'WEEKLY' || freq === 'BIWEEKLY') ? '' : 'none';
-			dayOfMonthSelect.style.display = (freq === 'MONTHLY' || freq === 'QUARTERLY') ? '' : 'none';
+			// For monthly: show position + mode dropdown, hide day-of-month if weekday mode
+			monthlyModeSelect.style.display = isMonthly ? '' : 'none';
+			positionSelect.style.display = isWeekdayMode ? '' : 'none';
+			dayOfMonthSelect.style.display = (isMonthly && !isWeekdayMode) ? '' : 'none';
 			monthSelect.style.display = freq === 'YEARLY' ? '' : 'none';
 			yearDaySelect.style.display = freq === 'YEARLY' ? '' : 'none';
 			startGroup.style.display = freq ? '' : 'none';
 		};
 		updateDetailVisibility();
+
+		// Update visibility when monthly mode changes
+		monthlyModeSelect.addEventListener('change', updateDetailVisibility);
 
 		// Generate rrule from current selections
 		const generateRRule = (): string => {
@@ -802,9 +849,15 @@ class EditTaskModal extends Modal {
 				case 'BIWEEKLY':
 					return `DTSTART:${dtstart};FREQ=WEEKLY;INTERVAL=2;BYDAY=${dayOfWeekSelect.value}`;
 				case 'MONTHLY':
+					// Check if using positional weekday or day of month
+					if (monthlyModeSelect.value !== 'day') {
+						return `DTSTART:${dtstart};FREQ=MONTHLY;BYDAY=${monthlyModeSelect.value};BYSETPOS=${positionSelect.value}`;
+					}
 					return `DTSTART:${dtstart};FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=${dayOfMonthSelect.value}`;
 				case 'QUARTERLY':
 					return `DTSTART:${dtstart};FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=${dayOfMonthSelect.value}`;
+				case 'BIANNUAL':
+					return `DTSTART:${dtstart};FREQ=MONTHLY;INTERVAL=6;BYMONTHDAY=${dayOfMonthSelect.value}`;
 				case 'YEARLY':
 					return `DTSTART:${dtstart};FREQ=YEARLY;INTERVAL=1;BYMONTH=${monthSelect.value};BYMONTHDAY=${yearDaySelect.value}`;
 				default:
@@ -831,6 +884,8 @@ class EditTaskModal extends Modal {
 		});
 		dayOfWeekSelect.addEventListener('change', updateRecurrence);
 		dayOfMonthSelect.addEventListener('change', updateRecurrence);
+		monthlyModeSelect.addEventListener('change', updateRecurrence);
+		positionSelect.addEventListener('change', updateRecurrence);
 		monthSelect.addEventListener('change', updateRecurrence);
 		yearDaySelect.addEventListener('change', updateRecurrence);
 		recurrenceStartInput.addEventListener('change', updateRecurrence);
@@ -2154,6 +2209,7 @@ export default class MinimalTasksPlugin extends Plugin {
 			const byDay = parts.BYDAY;
 			const byMonthDay = parts.BYMONTHDAY;
 			const byMonth = parts.BYMONTH;
+			const bySetPos = parts.BYSETPOS;
 
 			let text = "";
 
@@ -2167,6 +2223,8 @@ export default class MinimalTasksPlugin extends Plugin {
 				}
 			} else if (freq === 'MONTHLY' && interval === 3) {
 				text = "Quarterly";
+			} else if (freq === 'MONTHLY' && interval === 6) {
+				text = "Biannually";
 			} else {
 				switch (freq) {
 					case 'DAILY': text = `Every ${interval} days`; break;
@@ -2177,7 +2235,15 @@ export default class MinimalTasksPlugin extends Plugin {
 			}
 
 			// Add specifics
-			if (byDay) {
+			// Handle positional weekday (BYSETPOS + BYDAY) for monthly/yearly
+			if (bySetPos && byDay) {
+				const days: Record<string, string> = { SU: 'Sun', MO: 'Mon', TU: 'Tue', WE: 'Wed', TH: 'Thu', FR: 'Fri', SA: 'Sat' };
+				const dayName = days[byDay] || byDay;
+				const position = parseInt(bySetPos);
+				const positionText = position === -1 ? "last" : this.ordinalNumber(position);
+				text += ` on the ${positionText} ${dayName}`;
+			} else if (byDay) {
+				// Regular BYDAY (for weekly patterns, etc.)
 				const dayNames = byDay.split(',').map((code: string) => {
 					const days: Record<string, string> = { SU: 'Sun', MO: 'Mon', TU: 'Tue', WE: 'Wed', TH: 'Thu', FR: 'Fri', SA: 'Sat' };
 					return days[code] || code;
@@ -2225,6 +2291,10 @@ export default class MinimalTasksPlugin extends Plugin {
 		if (j === 2 && k !== 12) return "nd";
 		if (j === 3 && k !== 13) return "rd";
 		return "th";
+	}
+
+	private ordinalNumber(num: number): string {
+		return num + this.ordinalSuffix(num);
 	}
 
 	formatDTSTART(dateStr: string): string {
