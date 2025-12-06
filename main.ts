@@ -238,7 +238,7 @@ class EditTaskModal extends Modal {
 		}
 
 		const content = await this.app.vault.read(file);
-		const parsed = this.plugin.parseFrontmatter(content);
+		const parsed = parseFrontmatter(content);
 		this.frontmatter = parsed.frontmatter;
 		this.body = parsed.body;
 
@@ -688,7 +688,7 @@ class EditTaskModal extends Modal {
 			: scheduledInput.value || new Date().toISOString().split('T')[0];
 
 		if (currentRRule) {
-			const parts = this.plugin.parseRRule(currentRRule);
+			const parts = parseRRule(currentRRule);
 			// Extract DTSTART if present
 			if (parts.DTSTART) {
 				const ds = parts.DTSTART;
@@ -779,7 +779,7 @@ class EditTaskModal extends Modal {
 		// Generate rrule from current selections
 		const generateRRule = (): string => {
 			const startDate = recurrenceStartInput.value || scheduledInput.value || new Date().toISOString().split('T')[0];
-			const dtstart = this.plugin.formatDTSTART(startDate);
+			const dtstart = formatDTSTART(startDate);
 			const unit = unitSelect.value;
 			const interval = parseInt(intervalInput.value) || 1;
 
@@ -1382,7 +1382,7 @@ If title can be improved (more concise, action-oriented), suggest improvement.`;
 		this.frontmatter.dateModified = new Date().toISOString();
 
 		// Rebuild content
-		const newContent = this.plugin.rebuildContent(this.frontmatter, this.body);
+		const newContent = rebuildContent(this.frontmatter, this.body);
 
 		if (this.isCreateMode) {
 			// Create mode - create the file now
