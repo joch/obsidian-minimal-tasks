@@ -656,25 +656,18 @@ export class EditTaskModal extends Modal {
 		statusGroup.createSpan({ cls: 'edit-task-label', text: 'Status' });
 		const statusIcons = statusGroup.createDiv({ cls: 'edit-task-icon-group' });
 
-		const statusOptions = [
-			{ value: 'none', icon: '⚪' },
-			{ value: 'open', icon: '🔵' },
-			{ value: 'in-progress', icon: '🟡' },
-			{ value: 'done', icon: '✅' },
-			{ value: 'dropped', icon: '🔴' }
-		];
+		const statusValues = ['none', 'open', 'in-progress', 'done', 'dropped'];
 
 		const currentStatus = this.frontmatter.status || 'none';
-		statusOptions.forEach(opt => {
-			const icon = statusIcons.createSpan({
-				cls: 'edit-task-icon' + (currentStatus === opt.value ? ' active' : ''),
-				text: opt.icon,
-				attr: { title: opt.value }
+		statusValues.forEach(status => {
+			const dot = statusIcons.createSpan({
+				cls: 'task-status-dot' + (currentStatus === status ? ' selected' : ''),
+				attr: { 'data-status': status, title: status }
 			});
-			icon.addEventListener('click', () => {
-				statusIcons.querySelectorAll('.edit-task-icon').forEach(i => i.removeClass('active'));
-				icon.addClass('active');
-				this.frontmatter.status = opt.value;
+			dot.addEventListener('click', () => {
+				statusIcons.querySelectorAll('.task-status-dot').forEach(d => d.removeClass('selected'));
+				dot.addClass('selected');
+				this.frontmatter.status = status;
 			});
 		});
 

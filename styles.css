@@ -50,6 +50,12 @@
     background-color: #f26464;
 }
 
+/* Selected state for modal status dots */
+.task-status-dot.selected {
+    transform: scale(1.3);
+    box-shadow: 0 0 0 2px var(--background-primary), 0 0 0 4px var(--text-muted);
+}
+
 /* Priority badges - emoji indicators */
 .task-priority-badge {
     display: inline-block;
