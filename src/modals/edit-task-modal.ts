@@ -935,6 +935,9 @@ export class EditTaskModal extends Modal {
 					projectSelect.value = projectFile.path;
 					this.frontmatter.projects = [`"[[${projectFile.path}|${projectFile.basename}]]"`];
 					appliedFields.push('project');
+					// Clear area since it will be inherited from project
+					areaSelect.value = '';
+					delete this.frontmatter.area;
 				}
 			}
 
