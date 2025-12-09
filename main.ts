@@ -1170,7 +1170,7 @@ export default class MinimalTasksPlugin extends Plugin {
 			const nowISO = now.toISOString();
 			const newFrontmatter: Frontmatter = {
 				status: 'open',
-				priority: frontmatter.priority || 'anytime',
+				priority: 'anytime',  // Always reset - scheduled date controls visibility
 				dateCreated: nowISO,
 				dateModified: nowISO,
 				tags: frontmatter.tags || '[]',
