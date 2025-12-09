@@ -235,6 +235,20 @@ export default class MinimalTasksPlugin extends Plugin {
 			await this.createNewAction();
 		});
 
+		// Refresh Dataview views after index is ready (fixes startup rendering)
+		this.registerEvent(
+			this.app.metadataCache.on('dataview:index-ready' as any, () => {
+				// Small delay to ensure views are mounted
+				setTimeout(() => {
+					try {
+						(this.app as any).commands.executeCommandById('dataview:dataview-rebuild-current-view');
+					} catch (e) {
+						// Ignore if command not available
+					}
+				}, 100);
+			})
+		);
+
 		// Register commands
 		this.addCommand({
 			id: 'new-action',
