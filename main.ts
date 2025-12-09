@@ -1202,8 +1202,11 @@ export default class MinimalTasksPlugin extends Plugin {
 			if (frontmatter['discuss-with']) newFrontmatter['discuss-with'] = frontmatter['discuss-with'];
 			if (frontmatter['discuss-during']) newFrontmatter['discuss-during'] = frontmatter['discuss-during'];
 
+			// Uncheck any completed markdown tasks in the body for fresh start
+			const uncheckedBody = body.replace(/- \[[xX]\]/g, '- [ ]');
+
 			// Build new content
-			const newContent = rebuildContent(newFrontmatter, body);
+			const newContent = rebuildContent(newFrontmatter, uncheckedBody);
 
 			// Create new task file
 			await this.app.vault.create(newPath, newContent);
