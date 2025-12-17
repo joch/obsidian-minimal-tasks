@@ -25,5 +25,16 @@ export const DEFAULT_SETTINGS: MinimalTasksSettings = {
 
 	// Status and priority values
 	statuses: ['none', 'open', 'in-progress', 'done', 'dropped'],
-	priorities: ['anytime', 'today', 'someday']
+	priorities: ['anytime', 'today', 'someday'],
+
+	// Note type detection
+	personTypeField: 'type',
+	personTypeValue: 'person',
+	eventTypeField: 'type',
+	eventTypeValue: 'event',
+	projectTypeField: 'type',
+	projectTypeValue: 'project',
+	actionTypeField: 'type',
+	actionTypeValue: 'action',
+	areasFolder: 'gtd/areas/'
 };

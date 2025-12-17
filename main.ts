@@ -304,7 +304,7 @@ export default class MinimalTasksPlugin extends Plugin {
 				tags: [],
 				contexts: prefill?.context ? [prefill.context] : [],
 				projects: prefill?.project ? [`"[[${prefill.project}]]"`] : [],
-				area: prefill?.area ? `"[[gtd/areas/${prefill.area}|${prefill.area}]]"` : '""'
+				area: prefill?.area ? `"[[${this.settings.areasFolder}${prefill.area}|${prefill.area}]]"` : '""'
 			};
 
 			// Open the edit modal in create mode (file will be created on save)
@@ -349,7 +349,7 @@ export default class MinimalTasksPlugin extends Plugin {
 					}
 				}
 			}
-		} else if (activeFile.path.startsWith('gtd/areas/')) {
+		} else if (activeFile.path.startsWith(this.settings.areasFolder)) {
 			// Pre-fill with this area
 			prefill.area = activeFile.basename;
 		}

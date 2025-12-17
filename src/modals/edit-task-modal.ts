@@ -134,21 +134,20 @@ export class EditTaskModal extends Modal {
 		const projectSelect = projectGroup.createEl('select', { cls: 'edit-task-select-project' });
 		projectSelect.createEl('option', { value: '', text: '(none)' });
 
-		// Area emoji mapping and order
-		const areaEmoji: Record<string, string> = {
-			"Personal": "👨‍💻",
-			"Family": "🧑‍🎨",
-			"Social": "🕺",
-			"Home": "🏠",
-			"Opper": "🏢",
-			"Solvändan": "☀️",
-			"Garage": "🚗"
-		};
-		const areaOrder = ["Personal", "Family", "Social", "Home", "Opper", "Solvändan", "Garage", ""];
+		// Get areas from configured folder (with order and emoji from frontmatter)
+		const areaData = this.getAreasFromFolder();
+		const areaEmoji: Record<string, string> = {};
+		areaData.forEach(a => { areaEmoji[a.name] = a.emoji; });
+		const areaOrder = [...areaData.map(a => a.name), ""];
 
-		// Get projects from vault with area info
-		const projectFiles = this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith('gtd/projects/') && !f.path.includes('archive'))
+		// Get projects from vault with area info (using frontmatter type detection)
+		const projectFiles = this.getNotesOfType(
+			this.plugin.settings.projectTypeField,
+			this.plugin.settings.projectTypeValue
+		).filter(f => {
+			const cache = this.app.metadataCache.getFileCache(f);
+			return cache?.frontmatter?.state !== 'completed';
+		})
 			.map(f => {
 				const cache = this.app.metadataCache.getFileCache(f);
 				let areaField = cache?.frontmatter?.area;
@@ -202,17 +201,18 @@ export class EditTaskModal extends Modal {
 		areaGroup.createSpan({ cls: 'edit-task-label', text: '🗂️ Area' });
 		const areaSelect = areaGroup.createEl('select', { cls: 'edit-task-select-small' });
 
-		const areas = ['', 'Personal', 'Family', 'Social', 'Home', 'Opper', 'Solvändan', 'Garage'];
 		const currentArea = this.getAreaName();
-		areas.forEach(a => {
-			const emoji = a ? areaEmoji[a] || '📦' : '';
-			const text = a ? `${emoji} ${a}` : '(none)';
-			const opt = areaSelect.createEl('option', { value: a, text });
-			if (a === currentArea) opt.selected = true;
+		// Add empty option first
+		areaSelect.createEl('option', { value: '', text: '(none)' });
+		// Add areas in order with emojis from frontmatter
+		areaData.forEach(a => {
+			const text = `${a.emoji} ${a.name}`;
+			const opt = areaSelect.createEl('option', { value: a.name, text });
+			if (a.name === currentArea) opt.selected = true;
 		});
 		areaSelect.addEventListener('change', () => {
 			if (areaSelect.value) {
-				this.frontmatter.area = `"[[gtd/areas/${areaSelect.value}|${areaSelect.value}]]"`;
+				this.frontmatter.area = `"[[${this.plugin.settings.areasFolder}${areaSelect.value}|${areaSelect.value}]]"`;
 			} else {
 				this.frontmatter.area = '""';
 			}
@@ -242,9 +242,10 @@ export class EditTaskModal extends Modal {
 		const discussWithSelect = discussWithGroup.createEl('select', { cls: 'edit-task-select-small' });
 		discussWithSelect.createEl('option', { value: '', text: '(none)' });
 
-		const personFiles = this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith('notes/person/'))
-			.sort((a, b) => a.basename.localeCompare(b.basename));
+		const personFiles = this.getNotesOfType(
+			this.plugin.settings.personTypeField,
+			this.plugin.settings.personTypeValue
+		).sort((a, b) => a.basename.localeCompare(b.basename));
 
 		const currentDiscussWith = this.getDiscussWithBasename();
 		personFiles.forEach(pf => {
@@ -272,8 +273,10 @@ export class EditTaskModal extends Modal {
 		discussDuringSelect.createEl('option', { value: '', text: '(none)' });
 
 		// Get events from vault (recent events first)
-		const eventFiles = this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith('events/'))
+		const eventFiles = this.getNotesOfType(
+			this.plugin.settings.eventTypeField,
+			this.plugin.settings.eventTypeValue
+		)
 			.sort((a, b) => b.basename.localeCompare(a.basename)) // Most recent first
 			.slice(0, 50); // Limit to 50 most recent
 
@@ -320,16 +323,17 @@ export class EditTaskModal extends Modal {
 
 		// Get unique stores from existing tasks
 		const existingStores = new Set<string>();
-		this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith('gtd/actions/'))
-			.forEach(f => {
-				const cache = this.app.metadataCache.getFileCache(f);
-				const store = cache?.frontmatter?.store;
-				if (store) {
-					const storeStr = String(store).replace(/^["']|["']$/g, '');
-					if (storeStr) existingStores.add(storeStr);
-				}
-			});
+		this.getNotesOfType(
+			this.plugin.settings.actionTypeField,
+			this.plugin.settings.actionTypeValue
+		).forEach(f => {
+			const cache = this.app.metadataCache.getFileCache(f);
+			const store = cache?.frontmatter?.store;
+			if (store) {
+				const storeStr = String(store).replace(/^["']|["']$/g, '');
+				if (storeStr) existingStores.add(storeStr);
+			}
+		});
 
 		// Sort stores alphabetically and add as options
 		Array.from(existingStores).sort().forEach(store => {
@@ -800,9 +804,11 @@ export class EditTaskModal extends Modal {
 			const today = new Date();
 			const currentDate = today.toISOString().split('T')[0];
 
-			// Get available projects
-			const projectFiles = this.app.vault.getMarkdownFiles()
-				.filter(f => f.path.startsWith('gtd/projects/') && !f.path.includes('archive'));
+			// Get available projects (using frontmatter type detection)
+			const projectFiles = this.getNotesOfType(
+				this.plugin.settings.projectTypeField,
+				this.plugin.settings.projectTypeValue
+			);
 			const projects = projectFiles.map(f => {
 				const cache = this.app.metadataCache.getFileCache(f);
 				const state = cache?.frontmatter?.state;
@@ -822,14 +828,18 @@ export class EditTaskModal extends Modal {
 				return { name: f.basename, area, state };
 			}).filter(p => p.state === 'active');
 
-			// Get available people
-			const personFiles = this.app.vault.getMarkdownFiles()
-				.filter(f => f.path.startsWith('notes/person/'));
+			// Get available people (using frontmatter type detection)
+			const personFiles = this.getNotesOfType(
+				this.plugin.settings.personTypeField,
+				this.plugin.settings.personTypeValue
+			);
 			const people = personFiles.map(f => f.basename);
 
-			// Get available meetings (future events)
-			const eventFiles = this.app.vault.getMarkdownFiles()
-				.filter(f => f.path.startsWith('events/'));
+			// Get available meetings (future events, using frontmatter type detection)
+			const eventFiles = this.getNotesOfType(
+				this.plugin.settings.eventTypeField,
+				this.plugin.settings.eventTypeValue
+			);
 			const meetings = eventFiles
 				.filter(f => {
 					const cache = this.app.metadataCache.getFileCache(f);
@@ -839,18 +849,19 @@ export class EditTaskModal extends Modal {
 				})
 				.map(f => f.basename);
 
-			// Get available stores
+			// Get available stores (using frontmatter type detection)
 			const existingStores = new Set<string>();
-			this.app.vault.getMarkdownFiles()
-				.filter(f => f.path.startsWith('gtd/actions/'))
-				.forEach(f => {
-					const cache = this.app.metadataCache.getFileCache(f);
-					const store = cache?.frontmatter?.store;
-					if (store) {
-						const storeStr = String(store).replace(/^["']|["']$/g, '');
-						if (storeStr) existingStores.add(storeStr);
-					}
-				});
+			this.getNotesOfType(
+				this.plugin.settings.actionTypeField,
+				this.plugin.settings.actionTypeValue
+			).forEach(f => {
+				const cache = this.app.metadataCache.getFileCache(f);
+				const store = cache?.frontmatter?.store;
+				if (store) {
+					const storeStr = String(store).replace(/^["']|["']$/g, '');
+					if (storeStr) existingStores.add(storeStr);
+				}
+			});
 			const stores = Array.from(existingStores);
 
 			// Get task title and body
@@ -866,7 +877,7 @@ export class EditTaskModal extends Modal {
 					current_date: currentDate,
 					available_contexts: ['focus', 'quick', 'relax', 'home', 'office', 'brf', 'school', 'errands', 'agenda', 'waiting'],
 					available_projects: projects,
-					available_areas: ['Personal', 'Family', 'Social', 'Home', 'Opper', 'Solvändan', 'Garage'],
+					available_areas: this.getAreasFromFolder().map(a => a.name),
 					available_people: people,
 					available_meetings: meetings,
 					available_stores: stores
@@ -939,7 +950,7 @@ export class EditTaskModal extends Modal {
 				const areaOption = Array.from(areaSelect.options).find(opt => opt.value === detected.area);
 				if (areaOption) {
 					areaSelect.value = detected.area;
-					this.frontmatter.area = `"[[gtd/areas/${detected.area}|${detected.area}]]"`;
+					this.frontmatter.area = `"[[${this.plugin.settings.areasFolder}${detected.area}|${detected.area}]]"`;
 					appliedFields.push('area');
 				}
 			}
@@ -1187,6 +1198,32 @@ If title can be improved (more concise, action-oriented), suggest improvement.`;
 			if (text) contexts.push(text);
 		});
 		return contexts;
+	}
+
+	/**
+	 * Get notes of a specific type based on frontmatter field/value
+	 */
+	private getNotesOfType(typeField: string, typeValue: string): TFile[] {
+		return this.app.vault.getMarkdownFiles().filter(f => {
+			const cache = this.app.metadataCache.getFileCache(f);
+			return cache?.frontmatter?.[typeField] === typeValue;
+		});
+	}
+
+	/**
+	 * Get areas from the configured areas folder with order and emoji from frontmatter
+	 */
+	private getAreasFromFolder(): Array<{name: string, order: number, emoji: string}> {
+		const areasFolder = this.plugin.settings.areasFolder;
+		return this.app.vault.getMarkdownFiles()
+			.filter(f => f.path.startsWith(areasFolder))
+			.map(f => {
+				const cache = this.app.metadataCache.getFileCache(f);
+				const order = cache?.frontmatter?.order ?? 999;
+				const emoji = cache?.frontmatter?.emoji ?? '📦';
+				return { name: f.basename, order, emoji };
+			})
+			.sort((a, b) => a.order - b.order);
 	}
 
 	async saveChanges(): Promise<void> {

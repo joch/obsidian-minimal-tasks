@@ -26,6 +26,17 @@ export interface MinimalTasksSettings {
 	// Status and priority values
 	statuses: string[];
 	priorities: string[];
+
+	// Note type detection
+	personTypeField: string;
+	personTypeValue: string;
+	eventTypeField: string;
+	eventTypeValue: string;
+	projectTypeField: string;
+	projectTypeValue: string;
+	actionTypeField: string;
+	actionTypeValue: string;
+	areasFolder: string;
 }
 
 export interface DataviewAPI {

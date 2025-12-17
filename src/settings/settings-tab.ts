@@ -202,5 +202,111 @@ export class MinimalTasksSettingTab extends PluginSettingTab {
 					this.plugin.settings.noteContentIgnorePattern = value;
 					await this.plugin.saveSettings();
 				}));
+
+		// Note Type Detection Section
+		containerEl.createEl('h3', { text: 'Note Type Detection' });
+		containerEl.createEl('p', {
+			text: 'Configure how different note types are identified in your vault.',
+			cls: 'setting-item-description'
+		});
+
+		new Setting(containerEl)
+			.setName('Person type field')
+			.setDesc('Frontmatter field to identify person notes')
+			.addText(text => text
+				.setPlaceholder('type')
+				.setValue(this.plugin.settings.personTypeField)
+				.onChange(async (value) => {
+					this.plugin.settings.personTypeField = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Person type value')
+			.setDesc('Value that identifies a note as a person')
+			.addText(text => text
+				.setPlaceholder('person')
+				.setValue(this.plugin.settings.personTypeValue)
+				.onChange(async (value) => {
+					this.plugin.settings.personTypeValue = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Event type field')
+			.setDesc('Frontmatter field to identify event notes')
+			.addText(text => text
+				.setPlaceholder('type')
+				.setValue(this.plugin.settings.eventTypeField)
+				.onChange(async (value) => {
+					this.plugin.settings.eventTypeField = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Event type value')
+			.setDesc('Value that identifies a note as an event')
+			.addText(text => text
+				.setPlaceholder('event')
+				.setValue(this.plugin.settings.eventTypeValue)
+				.onChange(async (value) => {
+					this.plugin.settings.eventTypeValue = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Project type field')
+			.setDesc('Frontmatter field to identify project notes')
+			.addText(text => text
+				.setPlaceholder('type')
+				.setValue(this.plugin.settings.projectTypeField)
+				.onChange(async (value) => {
+					this.plugin.settings.projectTypeField = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Project type value')
+			.setDesc('Value that identifies a note as a project')
+			.addText(text => text
+				.setPlaceholder('project')
+				.setValue(this.plugin.settings.projectTypeValue)
+				.onChange(async (value) => {
+					this.plugin.settings.projectTypeValue = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Action type field')
+			.setDesc('Frontmatter field to identify action/task notes')
+			.addText(text => text
+				.setPlaceholder('type')
+				.setValue(this.plugin.settings.actionTypeField)
+				.onChange(async (value) => {
+					this.plugin.settings.actionTypeField = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Action type value')
+			.setDesc('Value that identifies a note as an action/task')
+			.addText(text => text
+				.setPlaceholder('action')
+				.setValue(this.plugin.settings.actionTypeValue)
+				.onChange(async (value) => {
+					this.plugin.settings.actionTypeValue = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Areas folder')
+			.setDesc('Folder containing area notes. Use "order" (number) and "emoji" frontmatter fields in area notes to control sorting and display.')
+			.addText(text => text
+				.setPlaceholder('gtd/areas/')
+				.setValue(this.plugin.settings.areasFolder)
+				.onChange(async (value) => {
+					this.plugin.settings.areasFolder = value;
+					await this.plugin.saveSettings();
+				}));
 	}
 }
