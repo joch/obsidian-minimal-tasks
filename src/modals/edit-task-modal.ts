@@ -700,6 +700,31 @@ export class EditTaskModal extends Modal {
 			});
 		});
 
+		// Notes section (textarea for body content)
+		const notesSection = contentEl.createDiv({ cls: 'edit-task-section' });
+		notesSection.createDiv({ cls: 'edit-task-section-label', text: 'Notes' });
+		const notesTextarea = notesSection.createEl('textarea', {
+			cls: 'edit-task-notes-input',
+			attr: {
+				placeholder: 'Add notes...',
+				rows: '3'
+			}
+		});
+
+		// Extract user content from body (after the dataviewjs ribbon block)
+		const ribbonBlock = '```dataviewjs\nawait dv.view("apps/dataview/unified-ribbon");\n```\n';
+		const ribbonEnd = this.body.indexOf('```\n', this.body.indexOf('```dataviewjs'));
+		const userContent = ribbonEnd !== -1
+			? this.body.substring(ribbonEnd + 4).trim()
+			: '';
+		notesTextarea.value = userContent;
+
+		notesTextarea.addEventListener('input', () => {
+			// Rebuild body: ribbon + user content
+			const userText = notesTextarea.value.trim();
+			this.body = userText ? ribbonBlock + '\n' + userText : ribbonBlock;
+		});
+
 		// Button row
 		const buttonRow = contentEl.createDiv({ cls: 'edit-task-button-row' });
 

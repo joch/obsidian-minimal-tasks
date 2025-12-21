@@ -681,3 +681,28 @@
 .edit-task-save:hover {
     background: var(--interactive-accent-hover);
 }
+
+/* Notes textarea */
+.edit-task-notes-input {
+    width: 100%;
+    min-height: 60px;
+    padding: 8px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 0.9em;
+    font-family: inherit;
+    resize: vertical;
+    transition: border-color 0.2s ease;
+}
+
+.edit-task-notes-input:hover,
+.edit-task-notes-input:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
+.edit-task-notes-input::placeholder {
+    color: var(--text-faint);
+}
