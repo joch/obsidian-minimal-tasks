@@ -37,6 +37,7 @@ export interface MinimalTasksSettings {
 	actionTypeField: string;
 	actionTypeValue: string;
 	areasFolder: string;
+	contextsFolder: string;
 }
 
 export interface DataviewAPI {

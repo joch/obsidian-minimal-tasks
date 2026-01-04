@@ -98,7 +98,7 @@ export class EditTaskModal extends Modal {
 		contextsSection.createDiv({ cls: 'edit-task-section-label', text: 'Contexts' });
 		const contextsContainer = contextsSection.createDiv({ cls: 'edit-task-contexts' });
 
-		const allContexts = ['focus', 'quick', 'relax', 'home', 'office', 'brf', 'school', 'errands', 'agenda', 'waiting'];
+		const allContexts = this.getContextsFromFolder();
 		const currentContexts = this.getArrayField('contexts');
 
 		const updateConditionalSections = () => {
@@ -905,7 +905,7 @@ export class EditTaskModal extends Modal {
 					task_title: taskTitle,
 					task_body: taskBody,
 					current_date: currentDate,
-					available_contexts: ['focus', 'quick', 'relax', 'home', 'office', 'brf', 'school', 'errands', 'agenda', 'waiting'],
+					available_contexts: this.getContextsFromFolder(),
 					available_projects: projects,
 					available_areas: this.getAreasFromFolder().map(a => a.name),
 					available_people: people,
@@ -1254,6 +1254,25 @@ If title can be improved (more concise, action-oriented), suggest improvement.`;
 				return { name: f.basename, order, emoji };
 			})
 			.sort((a, b) => a.order - b.order);
+	}
+
+	/**
+	 * Get contexts from the configured contexts folder with order from frontmatter
+	 * Context names are derived from filenames, stripping the @ prefix
+	 */
+	private getContextsFromFolder(): string[] {
+		const contextsFolder = this.plugin.settings.contextsFolder;
+		return this.app.vault.getMarkdownFiles()
+			.filter(f => f.path.startsWith(contextsFolder))
+			.map(f => {
+				const cache = this.app.metadataCache.getFileCache(f);
+				const order = cache?.frontmatter?.order ?? 999;
+				// Strip @ prefix from filename to get context name
+				const name = f.basename.startsWith('@') ? f.basename.slice(1) : f.basename;
+				return { name, order };
+			})
+			.sort((a, b) => a.order - b.order)
+			.map(c => c.name);
 	}
 
 	async saveChanges(): Promise<void> {

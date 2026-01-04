@@ -36,5 +36,6 @@ export const DEFAULT_SETTINGS: MinimalTasksSettings = {
 	projectTypeValue: 'project',
 	actionTypeField: 'type',
 	actionTypeValue: 'action',
-	areasFolder: 'gtd/areas/'
+	areasFolder: 'gtd/areas/',
+	contextsFolder: 'gtd/contexts/'
 };

@@ -308,5 +308,16 @@ export class MinimalTasksSettingTab extends PluginSettingTab {
 					this.plugin.settings.areasFolder = value;
 					await this.plugin.saveSettings();
 				}));
+
+		new Setting(containerEl)
+			.setName('Contexts folder')
+			.setDesc('Folder containing context notes (e.g., @focus.md). Use "order" (number) frontmatter field to control sorting. Context name is derived from filename without @ prefix.')
+			.addText(text => text
+				.setPlaceholder('gtd/contexts/')
+				.setValue(this.plugin.settings.contextsFolder)
+				.onChange(async (value) => {
+					this.plugin.settings.contextsFolder = value;
+					await this.plugin.saveSettings();
+				}));
 	}
 }
