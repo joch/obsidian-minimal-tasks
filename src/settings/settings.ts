@@ -21,7 +21,6 @@ export const DEFAULT_SETTINGS: MinimalTasksSettings = {
 	showNoteIcon: true,
 	showContextPills: false,  // Usually hidden in context views
 	noteContentIgnorePattern: '^\\s*```dataviewjs\\s*\\n\\s*await dv\\.view\\("(?:apps\\/dataview\\/)?unified-ribbon"\\);?\\s*\\n\\s*```\\s*',
-	enableConvertIcon: true,
 
 	// Status and priority values
 	statuses: ['none', 'open', 'in-progress', 'done', 'dropped'],

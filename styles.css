@@ -269,18 +269,19 @@
     opacity: 1;
 }
 
-/* Convert-to-action icon (appears in edit mode) */
-.minimal-tasks-convert-icon {
-    opacity: 0.3;
-    cursor: pointer;
-    margin-left: 4px;
-    font-size: 0.85em;
-    transition: opacity 0.2s ease;
-    user-select: none;
+/* Long-press visual feedback on checkboxes */
+.task-list-item-checkbox {
+    transition: transform 0.15s ease-out;
 }
 
-.minimal-tasks-convert-icon:hover {
-    opacity: 1;
+.task-list-item-checkbox.minimal-tasks-long-press-active {
+    transform: scale(1.3) !important;
+}
+
+/* Edit view: highlight the line during long-press */
+.cm-line.minimal-tasks-long-press-active {
+    background-color: var(--background-modifier-hover);
+    border-radius: 4px;
 }
 
 /* Edit icon (appears after task title) */

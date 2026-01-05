@@ -21,7 +21,6 @@ export interface MinimalTasksSettings {
 	showNoteIcon: boolean;
 	showContextPills: boolean;
 	noteContentIgnorePattern: string;
-	enableConvertIcon: boolean;
 
 	// Status and priority values
 	statuses: string[];

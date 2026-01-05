@@ -183,16 +183,6 @@ export class MinimalTasksSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Enable convert icon')
-			.setDesc('Show a convert icon at the end of markdown task lines in edit mode. Click to convert to an action file. Requires restart to take effect.')
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.enableConvertIcon)
-				.onChange(async (value) => {
-					this.plugin.settings.enableConvertIcon = value;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
 			.setName('Note content ignore pattern')
 			.setDesc('Regex pattern to ignore when detecting note content. Useful for stripping boilerplate code blocks like ribbons. Leave empty to disable.')
 			.addTextArea(text => text

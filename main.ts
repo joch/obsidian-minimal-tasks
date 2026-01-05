@@ -44,34 +44,9 @@ import {
 } from './src/rendering';
 import { EditTaskModal } from './src/modals';
 
-// Widget for the convert-to-action icon
-class ConvertTaskWidget extends WidgetType {
-	constructor(
-		private plugin: MinimalTasksPlugin,
-		private taskText: string,
-		private lineFrom: number,
-		private lineTo: number
-	) {
-		super();
-	}
-
-	toDOM(view: EditorView): HTMLElement {
-		const icon = document.createElement('span');
-		icon.className = 'minimal-tasks-convert-icon';
-		icon.textContent = '➕';
-		icon.title = 'Convert to action';
-		icon.addEventListener('click', (e) => {
-			e.preventDefault();
-			e.stopPropagation();
-			this.plugin.convertToAction(this.taskText, this.lineFrom, this.lineTo, view);
-		});
-		return icon;
-	}
-
-	eq(other: ConvertTaskWidget): boolean {
-		return this.taskText === other.taskText && this.lineFrom === other.lineFrom;
-	}
-}
+// Long-press detection configuration
+const LONG_PRESS_DURATION = 600; // milliseconds
+const LONG_PRESS_MOVEMENT_THRESHOLD = 10; // pixels
 
 // Widget for rendering action links as full task rows
 class ActionLinkWidget extends WidgetType {
@@ -147,48 +122,133 @@ function createActionLinkPlugin(plugin: MinimalTasksPlugin) {
 	);
 }
 
-// ViewPlugin factory for task line decoration
-function createConvertTaskPlugin(plugin: MinimalTasksPlugin) {
+// ViewPlugin factory for long-press detection on checkboxes in edit view
+function createLongPressPlugin(plugin: MinimalTasksPlugin) {
 	return ViewPlugin.fromClass(
 		class {
-			decorations: DecorationSet;
+			private pressTimer: number | null = null;
+			private startPosition: { x: number; y: number } | null = null;
+			private activeElement: HTMLElement | null = null;
+			private preventNextClick = false;
 
-			constructor(view: EditorView) {
-				this.decorations = this.buildDecorations(view);
+			constructor(private view: EditorView) {
+				this.view.dom.addEventListener('pointerdown', this.handlePointerDown);
+				this.view.dom.addEventListener('pointerup', this.handlePointerUp);
+				this.view.dom.addEventListener('pointermove', this.handlePointerMove);
+				this.view.dom.addEventListener('pointercancel', this.handlePointerCancel);
+				this.view.dom.addEventListener('click', this.handleClick, true);
+			}
+
+			destroy() {
+				this.view.dom.removeEventListener('pointerdown', this.handlePointerDown);
+				this.view.dom.removeEventListener('pointerup', this.handlePointerUp);
+				this.view.dom.removeEventListener('pointermove', this.handlePointerMove);
+				this.view.dom.removeEventListener('pointercancel', this.handlePointerCancel);
+				this.view.dom.removeEventListener('click', this.handleClick, true);
+				this.cancelPress();
+			}
+
+			private handlePointerDown = (e: PointerEvent) => {
+				const target = e.target as HTMLElement;
+
+				// Must be inside a CodeMirror line
+				const lineEl = target.closest('.cm-line');
+				if (!lineEl) return;
+
+				// Get line info from position
+				const pos = this.view.posAtCoords({ x: e.clientX, y: e.clientY });
+				if (pos === null) return;
+
+				const line = this.view.state.doc.lineAt(pos);
+
+				// Match uncompleted markdown tasks: - [ ] task text
+				const taskMatch = line.text.match(/^(\s*)- \[ \] (.+)$/);
+				if (!taskMatch || !taskMatch[2]) return;
+
+				// Only for unconverted tasks (not action links)
+				const actionLinkPattern = /\[\[(gtd\/actions\/)?\d{8}-\d{6}\|/;
+				if (actionLinkPattern.test(line.text)) return;
+
+				// Check if click is in the checkbox area (first ~8 chars after indent: "- [ ] ")
+				const posInLine = pos - line.from;
+				const checkboxEnd = taskMatch[1].length + 6; // indent + "- [ ] "
+				if (posInLine > checkboxEnd) return;
+
+				this.startPosition = { x: e.clientX, y: e.clientY };
+				this.activeElement = lineEl as HTMLElement;
+				lineEl.classList.add('minimal-tasks-long-press-active');
+
+				this.pressTimer = window.setTimeout(() => {
+					this.triggerLongPress(taskMatch[2], line.from, line.to, e);
+				}, LONG_PRESS_DURATION);
+			};
+
+			private handlePointerUp = () => {
+				this.cancelPress();
+			};
+
+			private handlePointerMove = (e: PointerEvent) => {
+				if (!this.startPosition || !this.pressTimer) return;
+
+				const distance = Math.sqrt(
+					Math.pow(e.clientX - this.startPosition.x, 2) +
+					Math.pow(e.clientY - this.startPosition.y, 2)
+				);
+
+				if (distance > LONG_PRESS_MOVEMENT_THRESHOLD) {
+					this.cancelPress();
+				}
+			};
+
+			private handlePointerCancel = () => {
+				this.cancelPress();
+			};
+
+			private handleClick = (e: MouseEvent) => {
+				// Prevent click from firing after successful long-press
+				if (this.preventNextClick) {
+					e.preventDefault();
+					e.stopPropagation();
+					this.preventNextClick = false;
+				}
+			};
+
+			private cancelPress() {
+				if (this.pressTimer) {
+					clearTimeout(this.pressTimer);
+					this.pressTimer = null;
+				}
+				if (this.activeElement) {
+					this.activeElement.classList.remove('minimal-tasks-long-press-active');
+					this.activeElement = null;
+				}
+				this.startPosition = null;
+			}
+
+			private triggerLongPress(
+				taskText: string,
+				lineFrom: number,
+				lineTo: number,
+				e: PointerEvent
+			) {
+				this.cancelPress();
+
+				// Prevent the subsequent click event
+				this.preventNextClick = true;
+
+				// Haptic feedback on mobile
+				if ('vibrate' in navigator) {
+					navigator.vibrate(50);
+				}
+
+				// Convert the task
+				plugin.convertToAction(taskText, lineFrom, lineTo, this.view);
 			}
 
 			update(update: ViewUpdate) {
-				if (update.docChanged || update.viewportChanged) {
-					this.decorations = this.buildDecorations(update.view);
-				}
+				// No decorations needed, just event handling
 			}
-
-			buildDecorations(view: EditorView): DecorationSet {
-				const widgets: Range<Decoration>[] = [];
-				// Match uncompleted markdown tasks: - [ ] task text
-				const taskRegex = /^(\s*)- \[ \] (.+)$/;
-				// Pattern to detect action links (already converted tasks)
-				const actionLinkPattern = /\[\[(gtd\/actions\/)?\d{8}-\d{6}\|/;
-
-				for (const { from, to } of view.visibleRanges) {
-					for (let pos = from; pos <= to;) {
-						const line = view.state.doc.lineAt(pos);
-						const match = line.text.match(taskRegex);
-						// Only add convert icon if it's a plain task (not an action link)
-						if (match && match[2] && !actionLinkPattern.test(line.text)) {
-							const widget = Decoration.widget({
-								widget: new ConvertTaskWidget(plugin, match[2], line.from, line.to),
-								side: 1
-							});
-							widgets.push(widget.range(line.to));
-						}
-						pos = line.to + 1;
-					}
-				}
-				return Decoration.set(widgets, true);
-			}
-		},
-		{ decorations: v => v.decorations }
+		}
 	);
 }
 
@@ -217,10 +277,8 @@ export default class MinimalTasksPlugin extends Plugin {
 		// Add settings tab
 		this.addSettingTab(new MinimalTasksSettingTab(this.app, this));
 
-		// Register CodeMirror extension for convert icons (if enabled)
-		if (this.settings.enableConvertIcon) {
-			this.registerEditorExtension(createConvertTaskPlugin(this));
-		}
+		// Register CodeMirror extension for long-press to convert tasks
+		this.registerEditorExtension(createLongPressPlugin(this));
 
 		// Register CodeMirror extension for rendering action links as task rows
 		this.registerEditorExtension(createActionLinkPlugin(this));
@@ -860,18 +918,6 @@ export default class MinimalTasksPlugin extends Plugin {
 			}
 			return;
 		}
-
-		// Check if clicked on convert icon (reading view)
-		if (target.classList.contains('minimal-tasks-convert-icon')) {
-			event.preventDefault();
-			event.stopPropagation();
-			const taskText = target.dataset.taskText;
-			const sourcePath = target.dataset.sourcePath;
-			if (taskText && sourcePath) {
-				await this.convertToActionFromReading(taskText, sourcePath);
-			}
-			return;
-		}
 	}
 
 	/**
@@ -1297,27 +1343,86 @@ export default class MinimalTasksPlugin extends Plugin {
 				}
 			}
 
-			// If no action link found, add convert button for plain tasks
+			// If no action link found, attach long-press to checkbox for plain tasks
 			if (!hasActionLink) {
 				// Get the text content of the task (excluding checkbox)
-				const checkbox = li.querySelector('input[type="checkbox"]');
+				const checkbox = li.querySelector('input[type="checkbox"]') as HTMLInputElement;
 				if (!checkbox) continue;
 
 				// Get task text - everything after the checkbox
 				const taskText = this.getTaskTextFromListItem(li);
 				if (!taskText || taskText.trim() === '') continue;
 
-				// Add convert button
-				const convertIcon = document.createElement('span');
-				convertIcon.className = 'minimal-tasks-convert-icon';
-				convertIcon.textContent = '➕';
-				convertIcon.setAttribute('data-task-text', taskText);
-				convertIcon.setAttribute('data-source-path', context.sourcePath);
-
-				// Append at end of list item
-				li.appendChild(convertIcon);
+				// Attach long-press detection to checkbox
+				this.attachLongPressToCheckbox(checkbox, taskText, context.sourcePath);
 			}
 		}
+	}
+
+	/**
+	 * Attach long-press detection to a checkbox element for converting tasks in reading view
+	 */
+	private attachLongPressToCheckbox(checkbox: HTMLInputElement, taskText: string, sourcePath: string): void {
+		let pressTimer: number | null = null;
+		let startPosition: { x: number; y: number } | null = null;
+		let preventNextClick = false;
+
+		const cancelPress = () => {
+			if (pressTimer) {
+				clearTimeout(pressTimer);
+				pressTimer = null;
+			}
+			checkbox.classList.remove('minimal-tasks-long-press-active');
+			startPosition = null;
+		};
+
+		const handlePointerDown = (e: PointerEvent) => {
+			startPosition = { x: e.clientX, y: e.clientY };
+			checkbox.classList.add('minimal-tasks-long-press-active');
+
+			pressTimer = window.setTimeout(() => {
+				cancelPress();
+				preventNextClick = true;
+
+				// Haptic feedback on mobile
+				if ('vibrate' in navigator) {
+					navigator.vibrate(50);
+				}
+
+				this.convertToActionFromReading(taskText, sourcePath);
+			}, LONG_PRESS_DURATION);
+		};
+
+		const handlePointerUp = () => {
+			cancelPress();
+		};
+
+		const handlePointerMove = (e: PointerEvent) => {
+			if (!startPosition || !pressTimer) return;
+
+			const distance = Math.sqrt(
+				Math.pow(e.clientX - startPosition.x, 2) +
+				Math.pow(e.clientY - startPosition.y, 2)
+			);
+
+			if (distance > LONG_PRESS_MOVEMENT_THRESHOLD) {
+				cancelPress();
+			}
+		};
+
+		const handleClick = (e: MouseEvent) => {
+			if (preventNextClick) {
+				e.preventDefault();
+				e.stopPropagation();
+				preventNextClick = false;
+			}
+		};
+
+		checkbox.addEventListener('pointerdown', handlePointerDown);
+		checkbox.addEventListener('pointerup', handlePointerUp);
+		checkbox.addEventListener('pointermove', handlePointerMove);
+		checkbox.addEventListener('pointercancel', handlePointerUp);
+		checkbox.addEventListener('click', handleClick, true);
 	}
 
 	/**
@@ -1330,10 +1435,6 @@ export default class MinimalTasksPlugin extends Plugin {
 		// Remove the checkbox
 		const checkbox = clone.querySelector('input[type="checkbox"]');
 		if (checkbox) checkbox.remove();
-
-		// Remove any existing convert icons
-		const convertIcon = clone.querySelector('.minimal-tasks-convert-icon');
-		if (convertIcon) convertIcon.remove();
 
 		// Get text content
 		return clone.textContent?.trim() || '';
