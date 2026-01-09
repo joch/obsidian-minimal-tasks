@@ -57,6 +57,11 @@ export function parseFrontmatter(content: string): ParsedContent {
  * Wikilinks need quotes so Dataview preserves them as strings with brackets
  */
 function quoteYamlValue(value: string): string {
+	// Skip if already quoted
+	if ((value.startsWith('"') && value.endsWith('"')) ||
+	    (value.startsWith("'") && value.endsWith("'"))) {
+		return value;
+	}
 	// Quote wikilinks to preserve them as strings (not Dataview Link objects)
 	if (value.includes('[[')) {
 		return `"${value}"`;
