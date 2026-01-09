@@ -53,6 +53,18 @@ export function parseFrontmatter(content: string): ParsedContent {
 }
 
 /**
+ * Quote a YAML value if it contains special characters
+ * Wikilinks need quotes so Dataview preserves them as strings with brackets
+ */
+function quoteYamlValue(value: string): string {
+	// Quote wikilinks to preserve them as strings (not Dataview Link objects)
+	if (value.includes('[[')) {
+		return `"${value}"`;
+	}
+	return value;
+}
+
+/**
  * Rebuild file content from frontmatter and body
  */
 export function rebuildContent(frontmatter: Frontmatter, body: string): string {
@@ -66,7 +78,7 @@ export function rebuildContent(frontmatter: Frontmatter, body: string): string {
 			} else {
 				lines.push(`${key}:`);
 				value.forEach(item => {
-					lines.push(`  - ${item}`);
+					lines.push(`  - ${quoteYamlValue(String(item))}`);
 				});
 			}
 		} else {

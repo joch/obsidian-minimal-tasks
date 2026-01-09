@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-minimal-tasks",
-	"version": "0.3.19",
+	"version": "0.3.20",
 	"description": "Lightweight plugin for interactive task status and priority in DataviewJS lists",
 	"main": "main.js",
 	"scripts": {
