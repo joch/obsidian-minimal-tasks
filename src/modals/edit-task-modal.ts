@@ -18,7 +18,6 @@ export class EditTaskModal extends Modal {
 	private body: string = '';
 	private isCreateMode: boolean = false;
 	private didSave: boolean = false;
-	private viewportHandler: (() => void) | null = null;
 
 	constructor(app: App, plugin: MinimalTasksPluginInterface, taskPath: string, initialFrontmatter?: Frontmatter, initialBody?: string) {
 		super(app);
@@ -41,9 +40,6 @@ export class EditTaskModal extends Modal {
 		const { contentEl } = this;
 		// Add class to the outer modal element for proper CSS targeting
 		this.modalEl.addClass('edit-task-modal');
-
-		// Set up visual viewport handler for mobile keyboard
-		this.setupViewportHandler();
 
 		if (this.isCreateMode) {
 			// Create mode - use provided frontmatter, don't load from file
@@ -1305,46 +1301,9 @@ If title can be improved (more concise, action-oriented), suggest improvement.`;
 		const { contentEl } = this;
 		contentEl.empty();
 
-		// Clean up viewport handler
-		this.cleanupViewportHandler();
-
 		// Refresh dataview if we saved or deleted
 		if (this.didSave) {
 			this.plugin.refreshDataview();
-		}
-	}
-
-	private setupViewportHandler(): void {
-		// Use visualViewport API to handle mobile keyboard
-		if (window.visualViewport) {
-			this.viewportHandler = () => {
-				const viewport = window.visualViewport!;
-				// Calculate available height (viewport height minus some padding)
-				const maxHeight = viewport.height - 40;
-				this.modalEl.style.setProperty('--modal-max-height', `${maxHeight}px`);
-			};
-			// Set initial value
-			this.viewportHandler();
-			// Listen for viewport changes (keyboard open/close)
-			window.visualViewport.addEventListener('resize', this.viewportHandler);
-		}
-
-		// On mobile, scroll focused input into view when keyboard appears
-		this.modalEl.addEventListener('focusin', (e) => {
-			const target = e.target as HTMLElement;
-			if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
-				// Small delay to let keyboard appear
-				setTimeout(() => {
-					target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-				}, 300);
-			}
-		});
-	}
-
-	private cleanupViewportHandler(): void {
-		if (this.viewportHandler && window.visualViewport) {
-			window.visualViewport.removeEventListener('resize', this.viewportHandler);
-			this.viewportHandler = null;
 		}
 	}
 }

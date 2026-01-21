@@ -308,8 +308,6 @@
 
 .modal.edit-task-modal {
     padding: 0;
-    max-height: var(--modal-max-height, 80vh);
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
 }
@@ -317,17 +315,6 @@
 .modal.edit-task-modal .modal-content {
     padding: 16px;
     flex: 1;
-    overflow-y: auto;
-}
-
-/* Mobile: position modal at top and limit height to leave room for keyboard */
-.is-mobile .modal.edit-task-modal {
-    max-height: 55vh !important;
-    margin-top: 40px !important;
-}
-
-.is-mobile .modal-container:has(.edit-task-modal) {
-    align-items: flex-start !important;
 }
 
 /* Title input - large, prominent at top */
